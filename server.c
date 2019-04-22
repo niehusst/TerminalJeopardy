@@ -8,6 +8,9 @@
 #include "socket.h"
 
 #define BUFFER_LEN 256
+#define NUM_QUESTIONS_PER_CATEGORY 5
+#define NUM_CATEGORIES 5
+#define MAX_NUM_PLAYERS 4
 
 typedef struct input{
   FILE* from_client;
@@ -15,6 +18,71 @@ typedef struct input{
   int client_socket_fd;
 }input_t;
 
+typedef struct square{
+  int value;
+  char* question;
+  char* answer;
+}square_t;
+
+typedef struct category{
+  square_t questions[NUM_QUESTIONS_PER_CATEGORY];
+  char* title;
+}category_t;
+
+typedef struct player{
+  char* name;
+  int score;
+}player_t;
+
+typedef struct game{
+  category_t* categories[NUM_CATEGORIES];
+  player_t* players[MAX_NUM_PLAYERS];
+  int num_players;
+}game_t;
+
+
+void truncate_questions_file() {
+  FILE* read = fopen("JEOPARDY_QUESTIONS1.json","r");
+  FILE* write = fopen("questions.json","w");
+  int num_lines_wanted = 1000;
+  for (int i=0; i<num_lines_wanted; i++) {
+    char line[100];
+    fgets(line, 100, read);
+    fprintf(write, line);
+  }
+
+  fclose(read);
+  fclose(write);
+}
+
+category_t* generate_category() {
+  category_t* category = malloc(sizeof(category));
+  // get random key from dictionary
+  // if fewer than 5 questions, pick new key
+  // get 5 random questions from that key and generate category
+  return category;
+}
+
+int add_player(char* name, game_t* game) {
+  // Needs locks
+  if (game->num_players > MAX_NUM_PLAYERS) return 1;
+  player_t* new_player = malloc(sizeof(player_t));
+  new_player->name = name;
+  new_player->score = 0;
+  game->players[game->num_players] = new_player;
+  game->num_players++;
+  return 0;
+}
+
+game_t* create_game() {
+  game_t* game = malloc(sizeof(game_t));
+  game->num_players = 0;
+  for (int i=0; i<NUM_CATEGORIES; i++) {
+    game->categories[i] = generate_category();
+  }
+
+  return game;
+}
 
 char* str_toupper(const char* string) {
   int len = strlen(string);
