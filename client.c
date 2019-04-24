@@ -6,15 +6,14 @@
 #include <unistd.h>
 
 #include "socket.h"
-//#include "game_structs.h"
+#include "game_structs.h"
 
-#define GAME_ONGOING 1
-#define GAME_OVER 0
 #define BOARD_WIDTH 80
 #define BOARD_HEIGHT 20
 
 // Global variable defining the state of the game as seen by user
 int game_state = GAME_ONGOING;
+
 
 /**
  * Print a reassuring message to stdin to tell them they have connected 
@@ -40,36 +39,70 @@ void game_over() {
   // Show appropriate UI for end of game
   printf("Somebody has one the game!\n");
 
-  // Allow some time to see it before program terminates
+  // Allow some time to see message before program terminates
   sleep(4);
 }
 
-char* get_board_vals(game_t* game_data) {
+/**
+ * Extract point values to display on the Jeopardy! game board UI from the 
+ * game data sent from the server. Return extracted data
+ *
+ * \param game_data - data from server containing information on point values
+ *                    and metadata for every question
+ * \return question_point_values - string array of point values and crossed
+ *                                 out completed questions
+ */
+char** get_board_vals(game_t* game_data) {
   char* question_done = "XXX";
 
-  int num_questions = 5;
-  int num_categories = 5;
+  int num_questions = NUM_QUESTIONS_PER_CATEGORY;
+  int num_categories = NUM_CATEGORIES;
   char** question_point_values = (char**)malloc(sizeof(char*)*(num_categories*num_questions));
   
   for(int cat = 0; cat < num_categories; cat++) {
     for(int q = 0; q < num_questions; q++) {
       square_t cur_question = game_data->categories[cat]->questions[q];
-      int num_size = 4;
+      int num_size = 4; //point string must hold 3 digits and null terminator
       char points[num_size];
       
       //get question point value as a string
       int written = snprintf(points, num_size, "%d", cur_question.value);
-      if(written < 0 || written >= 4) {
-        printf("oops!!\n");
-        strncpy(work, q, 4);
+      //if snprintf fails, just put question_done as a placeholder
+      if(written < 0 || written >= num_size) {
+        strncpy(points, question_done, num_size);
       }
 
       //assign value if question hasn't been answerd
-      question_point_values[cat*num_categories + q] = cur_question.isanswered ? question_done : points;
+      question_point_values[cat*num_categories + q] = cur_question.is_answered ? question_done : points;
     }
   }
   
   return question_point_values;
+}
+
+/**
+ * Get the list of category titles (truncated to maximum size if necessary)
+ * 
+ * \param game_data - holds the information on category names
+ * \return cats - string array of category titles
+ */
+char** get_categories(game_t* game_data) {
+  char** cats = (char**) malloc(sizeof(char*)*NUM_CATEGORIES);
+  int max_title_len = 11;
+  
+  for(int cat = 0; cat < NUM_CATEGORIES; cat++) {
+    //write upto max_title_len characters into the category title
+    //(only that many in order to fit in printf UI)
+    char title[max_title_len];
+    int written = snprintf(title, max_title_len-1, "%s", game_data->categories->title);
+    //if snprintf fails, just put CATEGORY as a placeholder
+    if(written < 0 || written >= max_title_len-1) {
+      strncpy(title, "CATEGORY", max_title_len);
+    }
+    cats[cat] = title;
+  }
+  
+  return cats;
 }
 
 /**
@@ -79,15 +112,11 @@ char* get_board_vals(game_t* game_data) {
  * \param board - a game_t struct that contains information about the baord
  */
 void display_board(game_t* game_data) {
-  char* category1 = "c1";
-  char* category2 = "c2";
-  char* category3 = "c3";
-  char* category4 = "c4";
-  char* category5 = "c5";
   int buffer_space = 13;
   char** point_vals = get_board_vals(game_data);
+  char** categories = get_categories(game_data);
   
-  printf("+------------------------------------------------------------------------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n", buffer_space, category1, buffer_space, category2, buffer_space, category3, buffer_space, category4, buffer_space-1, category5, point_vals[0], point_vals[1], point_vals[2], point_vals[3], point_vals[4], point_vals[5], point_vals[6], point_vals[7], point_vals[8], point_vals[9], point_vals[10], point_vals[11], point_vals[12], point_vals[13], point_vals[14], point_vals[15], point_vals[16], point_vals[17], point_vals[18], point_vals[19], point_vals[20], point_vals[21], point_vals[22], point_vals[23], point_vals[24]);
+  printf("+------------------------------------------------------------------------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n", buffer_space, categories[0], buffer_space, categories[1], buffer_space, categories[2], buffer_space, categories[3], buffer_space-1, categories[4], point_vals[0], point_vals[5], point_vals[10], point_vals[15], point_vals[20], point_vals[1], point_vals[6], point_vals[11], point_vals[16], point_vals[21], point_vals[2], point_vals[7], point_vals[12], point_vals[17], point_vals[22], point_vals[3], point_vals[8], point_vals[13], point_vals[18], point_vals[23], point_vals[4], point_vals[9], point_vals[14], point_vals[19], point_vals[24]);
 }
 
 /**
@@ -98,10 +127,17 @@ void display_board(game_t* game_data) {
  * \return was_first - boolean, response from the server determination of whether or
  *                     not this client buzzed-in first.
  */
-int buzz_in(int server_fd) {
+int buzz_in(input_t* server) {
   int was_first = 0;
 
   //TODO: getc from stdin and send to server, then get server response
+
+  /*
+    buzz + stdin respons
+send to server
+
+wait for server response
+   */
 
   return was_first;
 }
@@ -129,12 +165,14 @@ void get_correct_answer(input_t* server) {
   display_answers(...);
 }
 
-
 /**
- * Thread funciton to handle input from the user. Handle the imnput this way??
+ * Get the question coords that were selected by the client whose turn it was.
+ * Blocks clients until the buzz-in period
+ *
+ * \param server - communication info for the game server  
  */
-void* input_handler(void* arg) {
-  return NULL;
+void get_question(input_t* server) {
+ 
 }
 
 /**
@@ -162,6 +200,9 @@ void* ui_update(void* server_info) {
     if( ... ) {
       select_question(server);
     }
+    
+    // wait for server confirmation of selected question
+    get_question(server);
 
     // Buzz in period
     int first = buzz_in(server);
@@ -169,7 +210,10 @@ void* ui_update(void* server_info) {
     // If buzzed in first, notify of Q answer opportunity
     if(first) {
       answer_question(server);
-    } 
+    } else {
+      // Display "not your turn to answer"
+    }
+    
     // otherwise block until server response with answer result 
     get_correct_answer(server);
   }
@@ -225,11 +269,8 @@ int main(int argc, char** argv) {
   // Notify user that game has been joined
   wait_message();
   
-  // Launch game threads
-  pthread input_thread;
-  pthread ui_update_thread;
-
-  pthread_create(&input_thread, NULL, input_handler, NULL);
+  // Launch UI thread
+  pthread_t ui_update_thread;
   pthread_create(&ui_update_thread, NULL, ui_update, &server);
 
   // Block main thread while game is ongoing
@@ -244,6 +285,9 @@ int main(int argc, char** argv) {
   
   // Close socket
   close(socket_fd);
+
+  // Free malloced memory
+  free(server);
 	
   return 0;
 }

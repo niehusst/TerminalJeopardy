@@ -5,40 +5,11 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#include "game_structs.h"
 #include "socket.h"
 
 #define BUFFER_LEN 256
-#define NUM_QUESTIONS_PER_CATEGORY 5
-#define NUM_CATEGORIES 5
-#define MAX_NUM_PLAYERS 4
 
-typedef struct input{
-  FILE* from_client;
-  FILE* to_client;
-  int client_socket_fd;
-}input_t;
-
-typedef struct square{
-  int value;
-  char* question;
-  char* answer;
-}square_t;
-
-typedef struct category{
-  square_t questions[NUM_QUESTIONS_PER_CATEGORY];
-  char* title;
-}category_t;
-
-typedef struct player{
-  char* name;
-  int score;
-}player_t;
-
-typedef struct game{
-  category_t* categories[NUM_CATEGORIES];
-  player_t* players[MAX_NUM_PLAYERS];
-  int num_players;
-}game_t;
 
 
 void truncate_questions_file() {
@@ -99,7 +70,7 @@ void* thrd_function(void* input){
     
     // Receive a message from the client
     char buffer[BUFFER_LEN];
-    if(fgets(buffer, BUFFER_LEN, arg->from_client) == NULL) {
+    if(fgets(buffer, BUFFER_LEN, arg->from) == NULL) {
       perror("Reading from client failed");
       exit(2);
     }
@@ -109,24 +80,24 @@ void* thrd_function(void* input){
     printf("Client sent: %s\n", buffer);
     
     if(strcmp("quit", buffer) == 0) {
-      fprintf(arg->to_client, "%s", "Terminating connection\n");
+      fprintf(arg->to, "%s", "Terminating connection\n");
       printf("Closing connection to Client\n");
       break;
     }
       
     // Send the message back to the client
-    fprintf(arg->to_client, "'%s'\n", str_toupper(buffer));
+    fprintf(arg->to, "'%s'\n", str_toupper(buffer));
   
     // Flush the output buffer
-    fflush(arg->to_client);
+    fflush(arg->to);
   
   }
   // Close file streams
-  fclose(arg->to_client);
-  fclose(arg->from_client);
+  fclose(arg->to);
+  fclose(arg->from);
   
   // Close sockets
-  close(arg->client_socket_fd);
+  close(arg->socket_fd);
 
   return NULL;
 }
@@ -178,9 +149,9 @@ int main() {
 
     
     input_t* in = (input_t*) malloc(sizeof(input_t));
-    in->to_client = to_client;
-    in->from_client = from_client;
-    in->client_socket_fd = client_socket_fd;
+    in->to = to_client;
+    in->from = from_client;
+    in->socket_fd = client_socket_fd;
     printf("Starting thread to handle new client\n");
     pthread_create(&thrd_arr[counter%num_connections_allowed],NULL,
                    thrd_function, in);

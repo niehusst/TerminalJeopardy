@@ -4,11 +4,11 @@ CFLAGS := -g -lpthread
 all: server client
 
 clean:
-	rm -rf server client server.dSYM client.dSYM
+	rm -rf *~ server client server.dSYM client.dSYM
 
-server: server.c socket.h
+server: server.c socket.h game_structs.h
 	$(CC) $(CFLAGS) -o server server.c
 
-client: client.c
+client: client.c socket.h game_structs.h
 	$(CC) $(CFLAGS) -o client client.c
 
