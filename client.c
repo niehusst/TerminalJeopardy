@@ -12,7 +12,7 @@
 #define BOARD_HEIGHT 20
 
 // Global variable defining the state of the game as seen by user
-int game_state = GAME_ONGOING;
+enum game_status game_state = GAME_ONGOING;
 
 
 /**
@@ -20,7 +20,7 @@ int game_state = GAME_ONGOING;
  * before the game starts.
  */
 void wait_message() {
-  printf("You've joined the game!\nWaiting for all 4 people to join the game...\n");
+  printf("You've joined the game!\nWaiting for all %d people to join the game...\n", MAX_NUM_PLAYERS);
 }
 
 /**
@@ -28,19 +28,49 @@ void wait_message() {
  * to begin its exit procedures.
  */
 void end_game() {
+  // set the game as over so that the program exit sequence will begin
   game_state = GAME_OVER;
 }
 
 /**
  * Inform the user that the game has officially ended, and display their final
  * score as well as the name of the winner of the game.
+ *
+ * \param server - communication info for the game server
  */
-void game_over() {
+void game_over(input_t* server) { //TODO
+  // Read info on who has won and what final scores were
+  
   // Show appropriate UI for end of game
-  printf("Somebody has one the game!\n");
+  printf("%s has won the game!\n", ... );
 
   // Allow some time to see message before program terminates
   sleep(4);
+}
+
+/**
+ * Get the list of category titles (truncated to maximum size if necessary)
+ * 
+ * \param game_data - holds the information on category names
+ * \return cats - string array of category titles
+ */
+char** get_categories(board_t* game_data) {
+  char** cats = (char**) malloc(sizeof(char*)*NUM_CATEGORIES);
+  int max_title_len = 11;
+  
+  for(int cat = 0; cat < NUM_CATEGORIES; cat++) {
+    //write upto max_title_len characters into the category title
+    //(only that many in order to fit in printf UI)
+    char* title = (char*) malloc(sizeof(char)*max_title_len);
+    int written = snprintf(title, max_title_len-1, "%s", game_data->categories[cat]);
+    //if snprintf fails, just put CATEGORY as a placeholder
+    if(written < 0 || written > max_title_len) {
+      strncpy(title, "CATEGORY", max_title_len);
+    }
+    cats[cat] = title;
+  }
+  
+  return cats;
 }
 
 /**
@@ -52,7 +82,7 @@ void game_over() {
  * \return question_point_values - string array of point values and crossed
  *                                 out completed questions
  */
-char** get_board_vals(game_t* game_data) {
+char** get_board_vals(board_t* game_data) {
   char* question_done = "XXX";
 
   int num_questions = NUM_QUESTIONS_PER_CATEGORY;
@@ -61,19 +91,19 @@ char** get_board_vals(game_t* game_data) {
   
   for(int cat = 0; cat < num_categories; cat++) {
     for(int q = 0; q < num_questions; q++) {
-      square_t cur_question = game_data->categories[cat]->questions[q];
+
       int num_size = 4; //point string must hold 3 digits and null terminator
-      char points[num_size];
+      char* points = (char*) malloc(sizeof(char)*num_size);
       
       //get question point value as a string
-      int written = snprintf(points, num_size, "%d", cur_question.value);
+      int written = snprintf(points, num_size, "%d", game_data->points[q][cat]);
       //if snprintf fails, just put question_done as a placeholder
       if(written < 0 || written >= num_size) {
         strncpy(points, question_done, num_size);
       }
 
       //assign value if question hasn't been answerd
-      question_point_values[cat*num_categories + q] = cur_question.is_answered ? question_done : points;
+      question_point_values[cat*num_categories + q] = game_data->answered[q][cat] ? question_done : points;
     }
   }
   
@@ -81,40 +111,18 @@ char** get_board_vals(game_t* game_data) {
 }
 
 /**
- * Get the list of category titles (truncated to maximum size if necessary)
- * 
- * \param game_data - holds the information on category names
- * \return cats - string array of category titles
- */
-char** get_categories(game_t* game_data) {
-  char** cats = (char**) malloc(sizeof(char*)*NUM_CATEGORIES);
-  int max_title_len = 11;
-  
-  for(int cat = 0; cat < NUM_CATEGORIES; cat++) {
-    //write upto max_title_len characters into the category title
-    //(only that many in order to fit in printf UI)
-    char title[max_title_len];
-    int written = snprintf(title, max_title_len-1, "%s", game_data->categories->title);
-    //if snprintf fails, just put CATEGORY as a placeholder
-    if(written < 0 || written >= max_title_len-1) {
-      strncpy(title, "CATEGORY", max_title_len);
-    }
-    cats[cat] = title;
-  }
-  
-  return cats;
-}
-
-/**
  * Display the game board to the user with only valid, availble questions 
  * appearing on it.
  *
- * \param board - a game_t struct that contains information about the baord
+ * \param game_data - a struct that contains information about the game 
+ *                    necessary for displaying the UI
+ * \param categories - array of names of each category of questions
  */
-void display_board(game_t* game_data) {
+void display_board(board_t* game_data) {
   int buffer_space = 13;
-  char** point_vals = get_board_vals(game_data);
+  //get category names of truncated length
   char** categories = get_categories(game_data);
+  char** point_vals = get_board_vals(game_data);
   
   printf("+------------------------------------------------------------------------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n", buffer_space, categories[0], buffer_space, categories[1], buffer_space, categories[2], buffer_space, categories[3], buffer_space-1, categories[4], point_vals[0], point_vals[5], point_vals[10], point_vals[15], point_vals[20], point_vals[1], point_vals[6], point_vals[11], point_vals[16], point_vals[21], point_vals[2], point_vals[7], point_vals[12], point_vals[17], point_vals[22], point_vals[3], point_vals[8], point_vals[13], point_vals[18], point_vals[23], point_vals[4], point_vals[9], point_vals[14], point_vals[19], point_vals[24]);
 }
@@ -142,36 +150,110 @@ wait for server response
   return was_first;
 }
 
-game_t* get_game(input_t* server) {
+
+
+/**
+ * Read all the data about the current state of the game from the server.
+ *
+ * \param server - communication info for the game server
+ * \return board - the struct containing game data sent from the server  
+ */
+board_t* get_game(input_t* server) {//TODO
+  //read the board struct from server
+  board_t* board = (board_t*) malloc(sizeof(board_t));
+  metadata_t* data = (metadata_t*) malloc(sizeof(metadata_t));
+  int bytes_read = read(server->socket_fd, data, sizeof(metadata_t));
+  //ensure the entire struct was read
+  while(bytes_read < sizeof(board_t)) {
+    bytes_read += read(server->socket_fd, data+bytes_read, sizeof(metadata_t)-bytes_read);
+  }
+
+  //copy data into board
+  memcpy(board->answered, data->answered, sizeof(int)*NUM_QUESTIONS_PER_CATEGORY*NUM_CATEGORIES);
+  memcpy(board->points, data->points, sizeof(int)*NUM_QUESTIONS_PER_CATEGORY*NUM_CATEGORIES);
+  board->is_over = data->is_over;
+
+  //read the category names
+  for(int cat = 0; cat < NUM_CATEGORIES; cat++) {
+    size_t size_of_cat = sizeof(char)*data->category_sizes[cat];
+    char* cat_name = (char*)malloc(size_of_cat);
+    int b_read = read(server->socket_fd, cat_name, size_of_cat);
+    //check correct number of bytes were read from server
+    if(b_read < size_of_cat) {
+      //if failed, just fill in category name with a placeholder
+      strncpy(cat_name, "???", size_of_cat);
+    }
+
+    //put cat name in board struct
+    board->categories[cat] = cat_name;
+  }
+
+  return board;
+}
+
+/**
+ * Get user input, allowing the user to select the question they 
+ * want to answer. Send to the server so that other clients can receive
+ * the same information.
+ *
+ * \param server - communication info for the game server
+ */
+void select_question(input_t* server) {//TODO
+  //dont save time by returning chosen question so that all clients can get question at same time
+}
+
+/**
+ * Get user input that is the answer to a displayed question. Send the
+ * input answer to the server so it can be distributed to other clients.
+ *
+ * \param server - communication info for the game server
+ */
+void answer_question(input_t* server) {//TODO
 
 }
 
-void select_question(input_t* server) {
-
+/**
+ * Display the real and guessed answers to the ~beautiful~ UI for
+ * a few seconds.
+ *
+ * \param real - string, the actual answer to the question
+ * \param predicted - string, the answer guessed by the client who buzzed 
+ * \param answerer - string, the username of the client who answered
+ * \param is_correct - bool, True if the answer was correct, else False
+ */
+void display_answers(char* real, char* predicted, char* answerer, int is_correct) {
+  printf("%s said:\n%s\n\n", answerer, predicted);
+  
+  // display the true answer if their guess was wrong
+  if(is_correct) {
+    printf("That was absolutely correct!\n");
+  } else {
+    printf("Unfortuneately, the correct answer was,\n%s\n\n", real);
+  }
 }
 
-void answer_question(input_t* server) {
-
-}
-
-void display_answers(char* real, char* predicted) {
-
-}
-
-void get_correct_answer(input_t* server) {
+/**
+ * Get the answer guessed by the client who buzzed in and the real answer
+ * to the question from the server. Also get whether or not the answer
+ * was correct from the server.
+ *
+ * \param server - communication info for the game server
+ */
+void get_answers(input_t* server) {//TODO
   //read from server
+  //TODO: also send the username of the question answerer from the server
 
-  //display correct answer and attempted answer to UI
+  //display correct answer and attempted answer w/ correctness to UI
   display_answers(...);
 }
 
 /**
  * Get the question coords that were selected by the client whose turn it was.
- * Blocks clients until the buzz-in period
+ * Blocks clients until the buzz-in period begins.
  *
  * \param server - communication info for the game server  
  */
-void get_question(input_t* server) {
+void get_question(input_t* server) {//TODO
  
 }
 
@@ -188,7 +270,7 @@ void* ui_update(void* server_info) {
   // update the UI until the main thread exits
   while(1) {
     // Get game data from the server
-    game_t* game = get_game(server);
+    board_t* game = get_game(server);
 
     // Check if game is over
     if(game->is_over) end_game();
@@ -197,7 +279,7 @@ void* ui_update(void* server_info) {
     display_board(game);
 
     // If client's turn, select a question (have function return server response??)
-    if( ... ) {
+    if( ... ) {//TODO
       select_question(server);
     }
     
@@ -212,10 +294,13 @@ void* ui_update(void* server_info) {
       answer_question(server);
     } else {
       // Display "not your turn to answer"
+      printf("Too slow! Not your turn to answer!\n");
     }
     
-    // otherwise block until server response with answer result 
-    get_correct_answer(server);
+    // block until server responds with results of answering 
+    get_answers(server);
+
+    free(game); //malloced in get_game
   }
 
   return NULL;
@@ -277,7 +362,7 @@ int main(int argc, char** argv) {
   while(game_state) {}
 
   // Show game over screen
-  game_over();
+  game_over(server);
 
   // Close file streams
   fclose(to_server);

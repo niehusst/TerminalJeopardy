@@ -28,7 +28,7 @@ typedef struct square{
   int is_answered;
   char* question;
   char* answer;
-}square_t;
+} square_t;
 
 /**
  * A category's title and list of questions (and their metadata)
@@ -36,7 +36,7 @@ typedef struct square{
 typedef struct category{
   square_t questions[NUM_QUESTIONS_PER_CATEGORY];
   char* title;
-}category_t;
+} category_t;
 
 /**
  * Information about a player; useful for display information
@@ -44,17 +44,39 @@ typedef struct category{
 typedef struct player{
   char* name;
   int score;
-}player_t;
+} player_t;
 
 /**
  * Contains all the info on players and questions and the status of the game
  */
 typedef struct game{
   enum game_status is_over;
-  category_t* categories[NUM_CATEGORIES];
-  player_t* players[MAX_NUM_PLAYERS];
+  category_t categories[NUM_CATEGORIES];
+  player_t players[MAX_NUM_PLAYERS];
   int num_players;
-}game_t;
+} game_t;
 
+/**
+ * Contains most data necessary for making the game board UI. Data is simplified
+ * to only point values and whether or not questions have been answered so that
+ * the entire struct can be sent with minimal write commands.
+ */
+typedef struct metadata {
+  int is_over; // Boolean saying if game is over
+  int category_sizes[NUM_CATEGORIES];
+  int answered[NUM_QUESTIONS_PER_CATEGORY][NUM_CATEGORIES];
+  int points[NUM_QUESTIONS_PER_CATEGORY][NUM_CATEGORIES];
+} metadata_t;
+
+/**
+ * Contains all data necessary for making the game board UI. Is built from the
+ * metadata struct on the client side.
+ */
+typedef struct board {
+  int is_over;
+  char* categories[NUM_CATEGORIES];
+  int answered[NUM_QUESTIONS_PER_CATEGORY][NUM_CATEGORIES];
+  int points[NUM_QUESTIONS_PER_CATEGORY][NUM_CATEGORIES];
+} board_t;
 
 #endif
