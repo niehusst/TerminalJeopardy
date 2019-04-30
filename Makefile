@@ -1,7 +1,7 @@
 CC := clang
 CFLAGS := -g -lpthread
 
-all: server client
+all: client server
 
 clean:
 	rm -rf *~ server client server.dSYM client.dSYM

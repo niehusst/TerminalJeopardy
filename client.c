@@ -14,6 +14,10 @@
 // Global variable defining the state of the game as seen by user
 enum game_status game_state = GAME_ONGOING;
 
+//TODO: keep track of a local score by having a total that is existing score and a temp that is the value of the question they are trying to answer (only if it was their turn(this var would be set in the question select function))
+int player_score = 0;
+int temp_score = 0; //temp is added or subtracted from player score depending on whether or not they answered right
+
 
 /**
  * Print a reassuring message to stdin to tell them they have connected 
@@ -39,13 +43,16 @@ void end_game() {
  * \param server - communication info for the game server
  */
 void game_over(input_t* server) { //TODO
-  // Read info on who has won and what final scores were
+  // Read info on what final scores were
+  //TODO: read in player array
+  // determine who was the winner (max score)
+  
   
   // Show appropriate UI for end of game
   printf("%s has won the game!\n", ... );
 
   // Allow some time to see message before program terminates
-  sleep(4);
+  //sleep(4);
 }
 
 /**
@@ -138,14 +145,21 @@ void display_board(board_t* game_data) {
 int buzz_in(input_t* server) {
   int was_first = 0;
 
-  //TODO: getc from stdin and send to server, then get server response
+  printf("Buzz in!\n"); //TODO remove this
+  // getc from stdin and send to server, then get server response
+  int buzz = getchar();
 
-  /*
-    buzz + stdin respons
-send to server
+  //get system time of buzz in
+  time_t buzz_time = time(NULL);
 
-wait for server response
-   */
+  while(write(server->socket_fd, buzz_time, sizeof(time_t)) < 0) {
+    //failed to write
+  }
+
+  // get response from network about whether or not client was first to buzz
+  read(server->socket_fd, &was_first, sizeof(int));
+  // do some error handling
+  if(was_first > 1 || was_first < 0) was_first = 0;
 
   return was_first;
 }
@@ -158,8 +172,8 @@ wait for server response
  * \param server - communication info for the game server
  * \return board - the struct containing game data sent from the server  
  */
-board_t* get_game(input_t* server) {//TODO
-  //read the board struct from server
+board_t* get_game(input_t* server) {
+  //read the metadata struct from server and put into more useful board struct
   board_t* board = (board_t*) malloc(sizeof(board_t));
   metadata_t* data = (metadata_t*) malloc(sizeof(metadata_t));
   int bytes_read = read(server->socket_fd, data, sizeof(metadata_t));
@@ -192,14 +206,54 @@ board_t* get_game(input_t* server) {//TODO
 }
 
 /**
+ * Check if the user input coordinate of a question are valid: coordinates
+ * are within range of the game board and the question has not already been
+ * answered.
+ * 
+ * \param coords - string of 2 characters; a letter and number representing 
+ *                 coordinates of a question on the game board
+ * \return validity - boolean, whether or not the coords were valid 
+ *                    (True if they are valid, else False) 
+ */
+int choice_valid(char* coords, board_t* board) {
+  int validity = 0;
+  // extract numeric coords
+  int row = coords[0] - 'A';      //range A-E
+  int col = atoi(coords[1]) - 1;  //range 1-5
+  
+  // check coords are within range
+  if(row > 4 || row < 0 || col > 4 || col < 0) return validity;
+  
+  // check question hasn't already been answered
+  if(!board->answered[row][col]) {
+    // coords are valid choice
+    validity = 1;
+  }
+  
+  return validity;
+}
+
+/**
  * Get user input, allowing the user to select the question they 
  * want to answer. Send to the server so that other clients can receive
  * the same information.
  *
  * \param server - communication info for the game server
  */
-void select_question(input_t* server) {//TODO
-  //dont save time by returning chosen question so that all clients can get question at same time
+void select_question(input_t* server, board_t* board) {
+  //read client question choice; input must take coordinate form
+  //    letter row, number column (A1 through E5)
+  int coord_size = 2;
+  char coords[coord_size+1];
+  printf("Congrats! You buzzed in first! What question do you choose?\n");
+  printf("(Choice must be in coordinate form: letter row, number column (e.g. E5))\n");
+  while(fgets(coords, coord_size, stdin) != NULL && choice_valid(coords, board)) {
+    //read failed
+    printf("Unfortunately, that is not a valid choice.\nPlease pick a different question.\n");
+  }
+
+  // send coords to server (until success)
+  while(write(server->socket_fd, coords, sizeof(char)*coord_size+1) == -1) {}
 }
 
 /**
