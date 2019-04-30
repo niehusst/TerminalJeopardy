@@ -50,7 +50,7 @@ typedef struct player{
  * Contains all the info on players and questions and the status of the game
  */
 typedef struct game{
-  enum game_status is_over;
+  int is_over;
   category_t categories[NUM_CATEGORIES];
   player_t players[MAX_NUM_PLAYERS];
   int num_players;
@@ -78,5 +78,6 @@ typedef struct board {
   int answered[NUM_QUESTIONS_PER_CATEGORY][NUM_CATEGORIES];
   int points[NUM_QUESTIONS_PER_CATEGORY][NUM_CATEGORIES];
 } board_t;
+
 
 #endif
