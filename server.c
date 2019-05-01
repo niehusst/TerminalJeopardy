@@ -4,11 +4,20 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <time.h>
 
 #include "game_structs.h"
-#include "socket.h"
+#include "deps/socket.h"
+#include "deps/cJSON.h"
+#include "deps/uthash.h"
 
 #define BUFFER_LEN 256
+
+typedef struct input{
+  FILE* from_client;
+  FILE* to_client;
+  int client_socket_fd;
+}input_t;
 
 
 
@@ -26,32 +35,128 @@ void truncate_questions_file() {
   fclose(write);
 }
 
-category_t* generate_category() {
-  category_t* category = malloc(sizeof(category));
-  // get random key from dictionary
-  // if fewer than 5 questions, pick new key
-  // get 5 random questions from that key and generate category
-  return category;
+category_t* category_hashmap = NULL;
+int add_square_from_json(char* json_str) {
+    cJSON* json_category;
+    cJSON* json_air_date;
+    cJSON* json_question;
+    cJSON* json_value;
+    cJSON* json_answer;
+    cJSON* json_round;
+    cJSON* json_show_number;
+    cJSON* json = cJSON_Parse(json_str);
+    
+    if (json == NULL) {
+      //printf("Question json is NULL!");
+      return 0;
+    }
+
+    // Debugging 
+    //char* parsed_json_as_string = cJSON_Print(json);
+    //printf("JSON: %s\n", parsed_json_as_string);
+    
+    json_question = cJSON_GetObjectItem(json, "question");
+    json_answer = cJSON_GetObjectItem(json, "answer");
+    json_value = cJSON_GetObjectItem(json, "value");
+    json_category = cJSON_GetObjectItem(json, "category");
+    
+    square_t new_square;
+    new_square.question = cJSON_GetStringValue(json_question);
+    new_square.answer = cJSON_GetStringValue(json_answer);
+    new_square.value = cJSON_GetStringValue(json_value);
+    char* category = cJSON_GetStringValue(json_category);
+
+    category_t* query;
+    HASH_FIND_STR(category_hashmap, category, query);
+    if (query == NULL) {
+      query = malloc(sizeof(category_t));
+      query->title = category;
+      query->questions[0] = new_square;
+      query->num_questions = 1;
+      HASH_ADD_STR(category_hashmap, title, query);
+    } else {
+      if (query->num_questions < NUM_QUESTIONS_PER_CATEGORY) {
+        query->questions[query->num_questions-1] = new_square;
+        query->num_questions++;
+      }
+    }
+    //cJSON_Delete(json);
+    
+    return 1;
+}
+
+// clrs textbook
+int parse_json(FILE* input) {
+  int max_file_size = 100000;
+  char buffer[max_file_size];
+  fgets(buffer, max_file_size, input);
+  char token[2] = "}";
+  char* next = strtok(buffer, token);
+  
+  while (next != '\0') {
+    char json_buffer[max_file_size];
+    strcpy(json_buffer, next);
+    strcat(json_buffer, "}");
+    if (json_buffer[0] == ',') {
+      json_buffer[0] = ' ';
+    }
+
+    int success = add_square_from_json(json_buffer);
+    if (!success) break;
+
+    next = strtok(NULL, token);
+  }
+
+  /*
+  //Debugging
+  printf("FINSIHED PARSING JSON\n");
+  category_t* query;
+  for (query=question_hashmap; query != NULL; query=query->hh.next) {
+    printf("Category: %s, Num questions: %d\n", query->title, query->num_questions);
+  }
+  */
+  
+  return 0;
 }
 
 int add_player(char* name, game_t* game) {
   // Needs locks
-  if (game->num_players > MAX_NUM_PLAYERS) return 1;
+  if (game->num_players == MAX_NUM_PLAYERS) return 0;
   player_t* new_player = malloc(sizeof(player_t));
   new_player->name = name;
   new_player->score = 0;
   game->players[game->num_players] = new_player;
   game->num_players++;
-  return 0;
+  // unlock
+  return 1;
 }
 
 game_t* create_game() {
   game_t* game = malloc(sizeof(game_t));
   game->num_players = 0;
-  for (int i=0; i<NUM_CATEGORIES; i++) {
-    game->categories[i] = generate_category();
-  }
 
+  
+  category_t* c;
+  int map_size = 0;
+  for (c=category_hashmap; c!=NULL; ) {
+    category_t* temp = c->hh.next;
+    if (c->num_questions != NUM_QUESTIONS_PER_CATEGORY) {
+      HASH_DEL(category_hashmap, c);
+    } else {
+      map_size++;
+    }
+    c = temp;
+  }
+  
+  int r = rand() % (map_size-5);
+  for (int i=0; i<NUM_CATEGORIES; i++) {
+    c = category_hashmap;
+    for (int j=0; j<r && c->hh.next != NULL; i++) {
+      c = c->hh.next;
+    }
+    game->categories[i] = c;
+  }
+  
   return game;
 }
 
@@ -103,6 +208,10 @@ void* thrd_function(void* input){
 }
 
 int main() {
+  srand(time(NULL));
+  FILE* read = fopen("questions.json","r");
+  parse_json(read);
+  create_game();
   // Open a (arbitrary cpu chosen) server socket
   unsigned short port = 0;
   int server_socket_fd = server_socket_open(&port);
