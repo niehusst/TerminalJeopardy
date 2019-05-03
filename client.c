@@ -14,7 +14,7 @@
 // Global variable defining the state of the game as seen by user
 enum game_status game_state = GAME_ONGOING;
 
-//TODO: keep track of a local score by having a total that is existing score and a temp that is the value of the question they are trying to answer (only if it was their turn(this var would be set in the question select function))
+//TODO: keep track of a local score by having a total that is existing score and a temp that is the value of the question they are trying to answer (only if it was their turn(this var would be set in the question select function))?
 int player_score = 0;
 int temp_score = 0; //temp is added or subtracted from player score depending on whether or not they answered right
 
@@ -42,17 +42,73 @@ void end_game() {
  *
  * \param server - communication info for the game server
  */
-void game_over(input_t* server) { //TODO
-  // Read info on what final scores were
-  //TODO: read in player array
-  // determine who was the winner (max score)
+void game_over(input_t* server) { 
+  // Read info on what final results were
+
+  // read scores array
+  int scores[MAX_NUM_PLAYERS];
+  if(read(server->socket_fd, scores, sizeof(int)*MAX_NUM_PLAYERS) !=  sizeof(int)*MAX_NUM_PLAYERS) {
+    // error reading. Init scores to arbitrary values
+    for(int i = 0; i < MAX_NUM_PLAYERS; i++) {
+      scores[i] = 9999;
+    }
+  }
+  // read sizes of each player's username
+  int sizes[MAX_NUM_PLAYERS];
+  if(read(server->socket_fd, sizes, sizeof(int)*MAX_NUM_PLAYERS) !=  sizeof(int)*MAX_NUM_PLAYERS) {
+    // error reading. Init sizes to 0
+    for(int i = 0; i < MAX_NUM_PLAYERS; i++) {
+      sizes[i] = 0;
+    }
+  }
   
+  // read usernames (bytes according to previously sent sizes)
+  char* usernames[MAX_NUM_PLAYERS];
+  for(int user = 0; user < MAX_NUM_PLAYERS; user++) {
+    char* buf;
+    if(sizes[user] != 0) {
+      
+      // read the username into buf
+      if(read(server->socket_fd, buf, sizes[user]) != sizes[user]) {
+        // error reading username, write a default value
+        buf = malloc(sizeof(char) * 3);
+        for(int i = 0; i < 3; i++) {
+          buf[i] = '?';
+        }
+      }
+      
+    } else {
+      // error reading username, no size of username to get
+      buf = malloc(sizeof(char) * 3);
+
+      // put default into buf
+      for(int i = 0; i < 3; i++) {
+        buf[i] = '?';
+      }
+    }
+
+    // write buf into usernames array
+    usernames[user] = buf;
+  }
+  
+  // determine who was the winner (max score)
+  int max = 0;
+  for(int score = 1; score < MAX_NUM_PLAYERS; score++) {
+    if(scores[max] < scores[score]) {
+      max = score;
+    }
+  }
+  char* winner = usernames[max];
   
   // Show appropriate UI for end of game
-  printf("%s has won the game!\n", ... );
-
+  printf("%s has won the game!\n", winner);
+  //print all scores and usernames
+  for(int player = 0; player < MAX_NUM_PLAYERS; player++) {
+    printf("Player %s scored: %d\n", usernames[player], scores[player]);
+  }
+  
   // Allow some time to see message before program terminates
-  //sleep(4);
+  sleep(4);
 }
 
 /**
@@ -145,14 +201,14 @@ void display_board(board_t* game_data) {
 int buzz_in(input_t* server) {
   int was_first = 0;
 
-  printf("Buzz in!\n"); //TODO remove this
+  printf("Buzz in!\n"); //TODO remove this?
   // getc from stdin and send to server, then get server response
   int buzz = getchar();
 
   //get system time of buzz in
   time_t buzz_time = time(NULL);
 
-  while(write(server->socket_fd, buzz_time, sizeof(time_t)) < 0) {
+  while(write(server->socket_fd, &buzz_time, sizeof(time_t)) < 0) {
     //failed to write
   }
 
@@ -217,9 +273,9 @@ board_t* get_game(input_t* server) {
  */
 int choice_valid(char* coords, board_t* board) {
   int validity = 0;
-  // extract numeric coords
+  // extract numeric coords within range of 0-4 
   int row = coords[0] - 'A';      //range A-E
-  int col = atoi(coords[1]) - 1;  //range 1-5
+  int col = coords[1] - '0' - 1;  //range 1-5
   
   // check coords are within range
   if(row > 4 || row < 0 || col > 4 || col < 0) return validity;
@@ -262,8 +318,20 @@ void select_question(input_t* server, board_t* board) {
  *
  * \param server - communication info for the game server
  */
-void answer_question(input_t* server) {//TODO
+void answer_question(input_t* server) {
+  size_t max_ans_len = 255;
+  char answer[max_ans_len];
 
+  // get client's answer from standard input
+  while(fgets(answer, max_ans_len, stdin) == NULL) {
+    //error getting input
+    printf("Sorry, we didn't quite catch that. What was your answer?\n");
+  }
+
+  // send answer to the server
+  while(write(server->socket_fd, answer, strlen(answer)) == -1) {
+    // write failed
+  }
 }
 
 /**
@@ -287,28 +355,92 @@ void display_answers(char* real, char* predicted, char* answerer, int is_correct
 }
 
 /**
- * Get the answer guessed by the client who buzzed in and the real answer
- * to the question from the server. Also get whether or not the answer
- * was correct from the server.
+ * Get the answer guessed by the client who buzzed in, the real answer
+ * to the question, whether or not the answer was correct, and the 
+ * answerer's username from the server.
  *
  * \param server - communication info for the game server
  */
-void get_answers(input_t* server) {//TODO
-  //read from server
-  //TODO: also send the username of the question answerer from the server
+void get_answers(input_t* server) {
+  answer_sizes_t sizes;
+  
+  //read info on sizes of future reads from server
+  while(read(server->socket_fd, &sizes, sizeof(answer_sizes_t)) == -1) {
+    // try again while failing
+  }
 
+  // read predicted answer
+  char* pred;
+  while(read(server->socket_fd, pred, sizeof(char)*sizes.pred_ans_size) == -1) {
+    // try again while failing
+  }
+ 
+  // read actual answer
+  char* real;
+  while(read(server->socket_fd, real, sizeof(char)*sizes.real_ans_size) == -1) {
+    // try again while failing
+  }
+  
+  // read username
+  char* user;
+  while(read(server->socket_fd, user, sizeof(char)*sizes.user_size) == -1) {
+    // try again while failing
+  }
+  
+  // read whether answer was correct
+  int is_correct;
+  while(read(server->socket_fd, &is_correct, sizeof(int)) == -1) {
+    // try again while failing
+  }
+  
   //display correct answer and attempted answer w/ correctness to UI
-  display_answers(...);
+  display_answers(real, pred, user, is_correct);
 }
 
 /**
- * Get the question coords that were selected by the client whose turn it was.
- * Blocks clients until the buzz-in period begins.
+ * Show the question that the client should answer to the UI.
+ *
+ * \param q - string question that needs to be displayed on UI
+ */
+void display_question(char* q) {
+  printf("The question is:\n%s\n",q);
+}
+
+/**
+ * Get the question that were selected by the client whose turn it was.
+ * Serves to blocks client until the buzz-in period begins.
  *
  * \param server - communication info for the game server  
  */
-void get_question(input_t* server) {//TODO
- 
+void get_question(input_t* server) {
+  // read size of question
+  int size_of_question;
+  while(read(server->socket_fd, &size_of_question, sizeof(int)) == -1) {
+    // read failed, try again looping
+  }
+  
+  // read question
+  char* question;
+  while(read(server->socket_fd, question, sizeof(char)*size_of_question) == -1) {
+    // read failed, try again looping
+  }
+  
+  // show on UI
+  display_question(question);
+}
+
+/**
+ * Get data from the server, telling this client if it is their turn.
+ *
+ * \param server - contains all info necessary for communicating with the server
+ * \return my_turn - boolean, True if it is the client's turn, False otherwise
+ */
+int is_my_turn(input_t* server) {
+  int my_turn;
+  while(read(server->socket_fd, &my_turn, sizeof(int)) == -1) {
+    // read failed, try again looping
+  }
+  return my_turn;
 }
 
 /**
@@ -333,8 +465,8 @@ void* ui_update(void* server_info) {
     display_board(game);
 
     // If client's turn, select a question (have function return server response??)
-    if( ... ) {//TODO
-      select_question(server);
+    if(is_my_turn(server)) {
+      select_question(server, game);
     }
     
     // wait for server confirmation of selected question

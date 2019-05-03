@@ -1,6 +1,7 @@
 #ifndef __GAME_STRUCTS__
 #define __GAME_STRUCTS__
 #include <stdio.h>
+#include "deps/uthash.h"
 
 #define NUM_QUESTIONS_PER_CATEGORY 5
 #define NUM_CATEGORIES 5
@@ -24,7 +25,7 @@ typedef struct input{
  * on the game board).
  */
 typedef struct square{
-  int value;
+  char* value;
   int is_answered;
   char* question;
   char* answer;
@@ -34,9 +35,11 @@ typedef struct square{
  * A category's title and list of questions (and their metadata)
  */
 typedef struct category{
-  square_t questions[NUM_QUESTIONS_PER_CATEGORY];
+  square_t* questions[NUM_QUESTIONS_PER_CATEGORY];
   char* title;
-} category_t;
+  int num_questions;
+  UT_hash_handle hh;
+}category_t;
 
 /**
  * Information about a player; useful for display information
@@ -51,10 +54,11 @@ typedef struct player{
  */
 typedef struct game{
   int is_over;
-  category_t categories[NUM_CATEGORIES];
-  player_t players[MAX_NUM_PLAYERS];
+  category_t* categories[NUM_CATEGORIES];
+  player_t* players[MAX_NUM_PLAYERS];
   int num_players;
 } game_t;
+
 
 /**
  * Contains most data necessary for making the game board UI. Data is simplified
@@ -78,6 +82,16 @@ typedef struct board {
   int answered[NUM_QUESTIONS_PER_CATEGORY][NUM_CATEGORIES];
   int points[NUM_QUESTIONS_PER_CATEGORY][NUM_CATEGORIES];
 } board_t;
+
+/**
+ * Contains sizes of the strings required for sending answers to questions to a
+ * client from the server.
+ */
+typedef struct answer_sizes {
+  int pred_ans_size;
+  int real_ans_size;
+  int user_size;
+} answer_sizes_t;
 
 
 #endif
