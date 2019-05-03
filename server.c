@@ -13,12 +13,6 @@
 
 #define BUFFER_LEN 256
 
-typedef struct input{
-  FILE* from_client;
-  FILE* to_client;
-  int client_socket_fd;
-}input_t;
-
 
 
 void truncate_questions_file() {

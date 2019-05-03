@@ -12,4 +12,3 @@ server: server.c deps/socket.h deps/cJSON.h deps/cJSON.c deps/uthash.h game_stru
 
 client: client.c socket.h game_structs.h
 	$(CC) $(CFLAGS) -o client client.c
-
