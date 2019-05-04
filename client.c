@@ -17,7 +17,7 @@ enum game_status game_state = GAME_ONGOING;
 //TODO: keep track of a local score by having a total that is existing score and a temp that is the value of the question they are trying to answer (only if it was their turn(this var would be set in the question select function))?
 int player_score = 0;
 int temp_score = 0; //temp is added or subtracted from player score depending on whether or not they answered right
-
+char* my_username;
 
 /**
  * Print a reassuring message to stdin to tell them they have connected 
@@ -502,14 +502,15 @@ void* ui_update(void* server_info) {
  * \return - the program exit status
  */
 int main(int argc, char** argv) {
-  if(argc != 3) {
-    fprintf(stderr, "Usage: %s <server name> <port>\n", argv[0]);
+  if(argc != 4) {
+    fprintf(stderr, "Usage: %s <username> <server name> <port>\n", argv[0]);
     exit(1);
   }
 	
   // Read command line arguments
-  char* server_name = argv[1];
-  unsigned short port = atoi(argv[2]);
+  my_username = argv[1]; 
+  char* server_name = argv[2];
+  unsigned short port = atoi(argv[3]);
 	
   // Connect to the server
   int socket_fd = socket_connect(server_name, port);
