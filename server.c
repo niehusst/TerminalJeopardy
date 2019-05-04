@@ -9,6 +9,7 @@
 #include "deps/socket.h"
 #include "deps/cJSON.h"
 #include "deps/uthash.h"
+#include "deps/levenshtein.h"
 
 #define BUFFER_LEN 256
 #define NUM_QUESTIONS_PER_CATEGORY 5
@@ -22,7 +23,7 @@ typedef struct input{
 }input_t;
 
 typedef struct square{
-  char* value;
+  int value;
   char* question;
   char* answer;
 }square_t;
@@ -60,6 +61,39 @@ void truncate_questions_file() {
   fclose(write);
 }
 
+int parseValue(char* val_str) {
+  int val = 0;
+  if (val_str == NULL) return val;
+  
+  val_str[0] = ' ';
+  char* end;
+  val = (int)strtol(val_str, &end, 10);
+  return val;
+}
+
+char* str_tolower(char* string) {
+  int len = strlen(string);
+  char *ret = (char*) malloc(sizeof(char) * len);
+  for(int i = 0; i < len; i++) {
+    ret[i] = toupper(string[i]);
+  }
+  return ret;
+}
+
+int check_answer(char* guess, char* answer) {
+  int is_correct = 0;
+  char* guess_formatted = str_tolower(guess);
+  char* answer_formatted = str_tolower(answer);
+  
+  size_t difference = levenshtein(guess, answer);
+  int cutoff_factor = 2;
+  if (difference-1 < strlen(answer)/cutoff_factor) is_correct = 1;
+  
+  free(guess_formatted);
+  free(answer_formatted);
+  return is_correct;
+}
+
 category_t* category_hashmap = NULL;
 int add_square_from_json(char* json_str) {
     cJSON* json_category;
@@ -88,7 +122,7 @@ int add_square_from_json(char* json_str) {
     square_t new_square;
     new_square.question = cJSON_GetStringValue(json_question);
     new_square.answer = cJSON_GetStringValue(json_answer);
-    new_square.value = cJSON_GetStringValue(json_value);
+    new_square.value = parseValue(cJSON_GetStringValue(json_value));
     char* category = cJSON_GetStringValue(json_category);
 
     category_t* query;
@@ -99,12 +133,11 @@ int add_square_from_json(char* json_str) {
       query->questions[0] = new_square;
       query->num_questions = 1;
       HASH_ADD_STR(category_hashmap, title, query);
-    } else {
-      if (query->num_questions < NUM_QUESTIONS_PER_CATEGORY) {
-        query->questions[query->num_questions-1] = new_square;
-        query->num_questions++;
-      }
+    } else if (query->num_questions < NUM_QUESTIONS_PER_CATEGORY) {
+      query->questions[query->num_questions] = new_square;
+      query->num_questions++;
     }
+    // TODO: HANDLE FREEING LATER
     //cJSON_Delete(json);
     
     return 1;
@@ -131,15 +164,6 @@ int parse_json(FILE* input) {
 
     next = strtok(NULL, token);
   }
-
-  /*
-  //Debugging
-  printf("FINSIHED PARSING JSON\n");
-  category_t* query;
-  for (query=question_hashmap; query != NULL; query=query->hh.next) {
-    printf("Category: %s, Num questions: %d\n", query->title, query->num_questions);
-  }
-  */
   
   return 0;
 }
@@ -156,42 +180,39 @@ int add_player(char* name, game_t* game) {
   return 1;
 }
 
+category_t* get_category_at_index(int index) {
+  category_t* c = category_hashmap;
+  for (int i=0; i<index; i++) {
+     c = c->hh.next;
+  }
+  return c;
+}
+
 game_t* create_game() {
   game_t* game = malloc(sizeof(game_t));
   game->num_players = 0;
 
-  
   category_t* c;
-  int map_size = 0;
-  for (c=category_hashmap; c!=NULL; ) {
-    category_t* temp = c->hh.next;
+  category_t* temp;
+
+  // Get rid of all non-completely filled categories (gets rid of final
+  // jeopardy too as a consequence)
+  HASH_ITER(hh, category_hashmap, c, temp) {
     if (c->num_questions != NUM_QUESTIONS_PER_CATEGORY) {
       HASH_DEL(category_hashmap, c);
-    } else {
-      map_size++;
     }
-    c = temp;
   }
-  
+
+  int map_size = HASH_COUNT(category_hashmap);
+
+  // Selects five random categories next to each other to create a game
   int r = rand() % (map_size-5);
   for (int i=0; i<NUM_CATEGORIES; i++) {
-    c = category_hashmap;
-    for (int j=0; j<r && c->hh.next != NULL; i++) {
-      c = c->hh.next;
-    }
+    category_t* c = get_category_at_index(r+i);
     game->categories[i] = c;
   }
   
   return game;
-}
-
-char* str_toupper(const char* string) {
-  int len = strlen(string);
-  char *ret = (char*) malloc(sizeof(char) * len);
-  for(int i = 0; i < len; i++) {
-    ret[i] = toupper(string[i]);
-  }
-  return ret;
 }
 
 void* thrd_function(void* input){
@@ -216,7 +237,7 @@ void* thrd_function(void* input){
     }
       
     // Send the message back to the client
-    fprintf(arg->to_client, "'%s'\n", str_toupper(buffer));
+    fprintf(arg->to_client, "'%s'\n", buffer);
   
     // Flush the output buffer
     fflush(arg->to_client);
@@ -232,11 +253,23 @@ void* thrd_function(void* input){
   return NULL;
 }
 
+void print_board(game_t* g) {
+  for (int i=0; i<5; i++) {
+    printf("%s\n", g->categories[i]->title);
+    for (int j=0; j<5; j++) {
+      printf("Q: %s,A: %s, V: %d\n", g->categories[i]->questions[j].question, g->categories[i]->questions[j].answer, g->categories[i]->questions[j].value);
+    }
+  }
+}
+
 int main() {
   srand(time(NULL));
   FILE* read = fopen("questions.json","r");
   parse_json(read);
-  create_game();
+  game_t* g = create_game();
+  print_board(g);
+  int a = check_answer("the neck", "your neck");
+  printf("Answer: %d\n", a);
   // Open a (arbitrary cpu chosen) server socket
   unsigned short port = 0;
   int server_socket_fd = server_socket_open(&port);
