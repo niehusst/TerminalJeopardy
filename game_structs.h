@@ -25,7 +25,7 @@ typedef struct input{
  * on the game board).
  */
 typedef struct square{
-  char* value;
+  int value;
   int is_answered;
   char* question;
   char* answer;
@@ -35,7 +35,7 @@ typedef struct square{
  * A category's title and list of questions (and their metadata)
  */
 typedef struct category{
-  square_t* questions[NUM_QUESTIONS_PER_CATEGORY];
+  square_t questions[NUM_QUESTIONS_PER_CATEGORY];
   char* title;
   int num_questions;
   UT_hash_handle hh;

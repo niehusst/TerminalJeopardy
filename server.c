@@ -204,7 +204,7 @@ void* thrd_function(void* input){
     }
       
     // Send the message back to the client
-    fprintf(arg->to_client, "'%s'\n", buffer);
+    fprintf(arg->to, "'%s'\n", buffer);
     // Flush the output buffer
     fflush(arg->to);
   
