@@ -107,8 +107,8 @@ void game_over(input_t* server) {
     printf("Player %s scored: %d\n", usernames[player], scores[player]);
   }
   
-  // Allow some time to see message before program terminates
-  sleep(4);
+  // Allow user to determine when they are done looking at the message
+  getchar(); // wait until user input to finish
 }
 
 /**
@@ -213,7 +213,10 @@ int buzz_in(input_t* server) {
   }
 
   // get response from network about whether or not client was first to buzz
-  read(server->socket_fd, &was_first, sizeof(int));
+  if(read(server->socket_fd, &was_first, sizeof(int)) == -1) {
+    // read failed, consider not their turn
+    was_first = 0;
+  }
   // do some error handling
   if(was_first > 1 || was_first < 0) was_first = 0;
 
@@ -234,7 +237,7 @@ board_t* get_game(input_t* server) {
   metadata_t* data = (metadata_t*) malloc(sizeof(metadata_t));
   int bytes_read = read(server->socket_fd, data, sizeof(metadata_t));
   //ensure the entire struct was read
-  while(bytes_read < sizeof(board_t)) {
+  while(bytes_read < sizeof(metadata_t)) {
     bytes_read += read(server->socket_fd, data+bytes_read, sizeof(metadata_t)-bytes_read);
   }
 
@@ -324,7 +327,7 @@ void answer_question(input_t* server) {
 
   // get client's answer from standard input
   while(fgets(answer, max_ans_len, stdin) == NULL) {
-    //error getting input
+    // error getting input
     printf("Sorry, we didn't quite catch that. What was your answer?\n");
   }
 
@@ -477,6 +480,7 @@ void* ui_update(void* server_info) {
 
     // If buzzed in first, notify of Q answer opportunity
     if(first) {
+      printf("Congrats! You get to answer the question!\n");
       answer_question(server);
     } else {
       // Display "not your turn to answer"
@@ -537,6 +541,17 @@ int main(int argc, char** argv) {
   server->to = to_server;
   server->from = from_server;
   server->socket_fd = socket_fd;
+
+  // Send username size to the server
+  int len = strlen(my_username);
+  while(write(socket_fd, &len, sizeof(int)) == -1) {
+    //try again while failing
+  }
+
+  // Send the username to the server
+  while(write(socket_fd, my_username, sizeof(char) * strlen(my_username)) == -1) {
+    //try again while failing
+  }
   
   // Notify user that game has been joined
   wait_message();
