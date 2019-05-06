@@ -14,6 +14,9 @@
 
 #define BUFFER_LEN 256
 
+category_t* category_hashmap = NULL;
+game_t game;
+
 void truncate_questions_file() {
   FILE* read = fopen("JEOPARDY_QUESTIONS1.json","r");
   FILE* write = fopen("questions.json","w");
@@ -61,24 +64,19 @@ int check_answer(char* guess, char* answer) {
   return is_correct;
 }
 
-category_t* category_hashmap = NULL;
 int add_square_from_json(char* json_str) {
     cJSON* json_category;
-    cJSON* json_air_date;
     cJSON* json_question;
     cJSON* json_value;
     cJSON* json_answer;
-    cJSON* json_round;
-    cJSON* json_show_number;
     cJSON* json = cJSON_Parse(json_str);
     
     if (json == NULL) {
-      //printf("Question json is NULL!");
       return 0;
     }
 
     // Debugging 
-    //char* parsed_json_as_string = cJSON_Print(json);
+    // char* parsed_json_as_string = cJSON_Print(json);
     //printf("JSON: %s\n", parsed_json_as_string);
     
     json_question = cJSON_GetObjectItem(json, "question");
@@ -87,26 +85,32 @@ int add_square_from_json(char* json_str) {
     json_category = cJSON_GetObjectItem(json, "category");
     
     square_t new_square;
-    new_square.question = cJSON_GetStringValue(json_question);
-    new_square.answer = cJSON_GetStringValue(json_answer);
+    strncpy(new_square.question, cJSON_GetStringValue(json_question), MAX_QUESTION_LENGTH-1);
+    new_square.question[MAX_QUESTION_LENGTH-1] = '\0';
+    strncpy(new_square.answer, cJSON_GetStringValue(json_answer), MAX_ANSWER_LENGTH-1);
+    new_square.answer[MAX_ANSWER_LENGTH-1] = '\0';
     new_square.value = parseValue(cJSON_GetStringValue(json_value));
-    char* category = cJSON_GetStringValue(json_category);
-
+    
+    char category[MAX_ANSWER_LENGTH];
+    strncpy(category, cJSON_GetStringValue(json_category), MAX_ANSWER_LENGTH-1);
+    category[MAX_ANSWER_LENGTH-1] = '\0';
+    //printf("%s", new_square.question);
     category_t* query;
     HASH_FIND_STR(category_hashmap, category, query);
     if (query == NULL) {
       query = malloc(sizeof(category_t));
-      query->title = category;
+      strncpy(query->title, category, MAX_ANSWER_LENGTH-1);
+      query->title[MAX_ANSWER_LENGTH-1] = '\0';
       query->questions[0] = new_square;
       query->num_questions = 1;
       HASH_ADD_STR(category_hashmap, title, query);
     } else if (query->num_questions < NUM_QUESTIONS_PER_CATEGORY) {
       query->questions[query->num_questions] = new_square;
       query->num_questions++;
-    }
+      }
+    
     // TODO: HANDLE FREEING LATER
     //cJSON_Delete(json);
-    
     return 1;
 }
 
@@ -125,7 +129,6 @@ int parse_json(FILE* input) {
     if (json_buffer[0] == ',') {
       json_buffer[0] = ' ';
     }
-
     int success = add_square_from_json(json_buffer);
     if (!success) break;
 
@@ -135,14 +138,14 @@ int parse_json(FILE* input) {
   return 0;
 }
 
-int add_player(char* name, game_t* game) {
+int add_player(char* name) {
   // Needs locks
-  if (game->num_players == MAX_NUM_PLAYERS) return 0;
-  player_t* new_player = malloc(sizeof(player_t));
-  new_player->name = name;
-  new_player->score = 0;
-  game->players[game->num_players] = new_player;
-  game->num_players++;
+  if (game.num_players == MAX_NUM_PLAYERS) return 0;
+  player_t new_player;
+  new_player.name = name;
+  new_player.score = 0;
+  game.players[game.num_players] = new_player;
+  game.num_players++;
   // unlock
   return 1;
 }
@@ -155,9 +158,10 @@ category_t* get_category_at_index(int index) {
   return c;
 }
 
-game_t* create_game() {
-  game_t* game = malloc(sizeof(game_t));
-  game->num_players = 0;
+game_t create_game() {
+  game_t game;
+  game.num_players = 0;
+  game.is_over = 0;
 
   category_t* c;
   category_t* temp;
@@ -176,66 +180,52 @@ game_t* create_game() {
   int r = rand() % (map_size-5);
   for (int i=0; i<NUM_CATEGORIES; i++) {
     category_t* c = get_category_at_index(r+i);
-    game->categories[i] = c;
+    game.categories[i] = *c;
   }
   
   return game;
 }
 
-void* thrd_function(void* input){
-  input_t* arg = (input_t*) input;
-  while(1) {
-    
-    // Receive a message from the client
-    char buffer[BUFFER_LEN];
-    if(fgets(buffer, BUFFER_LEN, arg->from) == NULL) {
-      perror("Reading from client failed");
-      exit(2);
-    }
+void* handle_client(void* input) {
+  // Parse username and add client to board
+  input_t* args = (input_t*) input;
+  add_player(args->username);
 
-    buffer[strlen(buffer)-1] = '\0';
-      
-    printf("Client sent: %s\n", buffer);
-    
-    if(strcmp("quit", buffer) == 0) {
-      fprintf(arg->to, "%s", "Terminating connection\n");
-      printf("Closing connection to Client\n");
-      break;
-    }
-      
-    // Send the message back to the client
-    fprintf(arg->to, "'%s'\n", buffer);
-    // Flush the output buffer
-    fflush(arg->to);
-  
+  // Wait for enough players to have connected
+  while (game.num_players < 1) {
+    sleep(1);
   }
-  // Close file streams
-  fclose(arg->to);
-  fclose(arg->from);
   
-  // Close sockets
-  close(arg->socket_fd);
+  // send the game
+  if (write(args->socket_fd, &game, sizeof(game_t)) != sizeof(game_t)) {
+    perror("Writing game didn't work");
+    exit(2);
+  }
+  
+  // sync up threads
+  
+  while (game.num_players < 2) {
+    sleep(1);
+  }
+  
+  //while (game->is_over != 1) {
+    // wait for question selection
+    // pass question to each other player
+    // wait 5 sec for response
+    // if receive response, pause timer and check if correct
+    // break if correct
+    // then pass updated score and board to players
+  //}
 
   return NULL;
-}
-
-void print_board(game_t* g) {
-  for (int i=0; i<5; i++) {
-    printf("%s\n", g->categories[i]->title);
-    for (int j=0; j<5; j++) {
-      printf("Q: %s,A: %s, V: %d\n", g->categories[i]->questions[j].question, g->categories[i]->questions[j].answer, g->categories[i]->questions[j].value);
-    }
-  }
 }
 
 int main() {
   srand(time(NULL));
   FILE* read = fopen("questions.json","r");
   parse_json(read);
-  game_t* g = create_game();
-  print_board(g);
-  int a = check_answer("the neck", "your neck");
-  printf("Answer: %d\n", a);
+  game = create_game();
+  
   // Open a (arbitrary cpu chosen) server socket
   unsigned short port = 0;
   int server_socket_fd = server_socket_open(&port);
@@ -245,7 +235,7 @@ int main() {
   }
 	
   // Start listening for connections, with a maximum of one queued connection
-  int num_connections_allowed = 10;
+  int num_connections_allowed = MAX_NUM_PLAYERS;
   if(listen(server_socket_fd, num_connections_allowed)) {
     perror("listen failed");
     exit(2);
@@ -256,7 +246,6 @@ int main() {
   int counter = 0;
   pthread_t thrd_arr[num_connections_allowed];
   while(1){
-
     
     // Wait for a client to connect
     int client_socket_fd = server_socket_accept(server_socket_fd);
@@ -280,40 +269,22 @@ int main() {
       exit(2);
     }
 
-    
     input_t* in = (input_t*) malloc(sizeof(input_t));
     in->to = to_client;
     in->from = from_client;
     in->socket_fd = client_socket_fd;
-    printf("Starting thread to handle new client\n");
-    pthread_create(&thrd_arr[counter%num_connections_allowed],NULL,
-                   thrd_function, in);
+
+    in->username = "PLACEHOLDER_USERNAME";
+    printf("Starting thread to handle new client \n");
+    if (pthread_create(&thrd_arr[counter], NULL, handle_client, in)) {
+      perror("PTHREAD CREATE FAILED:");
+    }
+    pthread_join(thrd_arr[counter], NULL);
+    break;
     counter++;
-                   
-    
   }
+  
   close(server_socket_fd);
 	
   return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
