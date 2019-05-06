@@ -62,30 +62,6 @@ typedef struct game{
   int num_players;
 } game_t;
 
-
-/**
- * Contains most data necessary for making the game board UI. Data is simplified
- * to only point values and whether or not questions have been answered so that
- * the entire struct can be sent with minimal write commands.
- */
-typedef struct metadata {
-  int is_over; // Boolean saying if game is over
-  int category_sizes[NUM_CATEGORIES];
-  int answered[NUM_QUESTIONS_PER_CATEGORY][NUM_CATEGORIES];
-  int points[NUM_QUESTIONS_PER_CATEGORY][NUM_CATEGORIES];
-} metadata_t;
-
-/**
- * Contains all data necessary for making the game board UI. Is built from the
- * metadata struct on the client side.
- */
-typedef struct board {
-  int is_over;
-  char* categories[NUM_CATEGORIES];
-  int answered[NUM_QUESTIONS_PER_CATEGORY][NUM_CATEGORIES];
-  int points[NUM_QUESTIONS_PER_CATEGORY][NUM_CATEGORIES];
-} board_t;
-
 /**
  * Contains sizes of the strings required for sending answers to questions to a
  * client from the server.

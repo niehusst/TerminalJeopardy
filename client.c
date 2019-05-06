@@ -106,7 +106,7 @@ void game_over(input_t* server) {
   for(int player = 0; player < MAX_NUM_PLAYERS; player++) {
     printf("Player %s scored: %d\n", usernames[player], scores[player]);
   }
-  
+
   // Allow user to determine when they are done looking at the message
   getchar(); // wait until user input to finish
 }
@@ -114,10 +114,10 @@ void game_over(input_t* server) {
 /**
  * Get the list of category titles (truncated to maximum size if necessary)
  * 
- * \param game_data - holds the information on category names
+ * \param game_data - data about the entire game, including question values
  * \return cats - string array of category titles
  */
-char** get_categories(board_t* game_data) {
+char** get_categories(game_t* game_data) {
   char** cats = (char**) malloc(sizeof(char*)*NUM_CATEGORIES);
   int max_title_len = 11;
   
@@ -125,9 +125,10 @@ char** get_categories(board_t* game_data) {
     //write upto max_title_len characters into the category title
     //(only that many in order to fit in printf UI)
     char* title = (char*) malloc(sizeof(char)*max_title_len);
-    int written = snprintf(title, max_title_len-1, "%s", game_data->categories[cat]);
+    int written = snprintf(title, max_title_len-1, "%s", game_data->categories[cat].title);
+    
     //if snprintf fails, just put CATEGORY as a placeholder
-    if(written < 0 || written > max_title_len) {
+    if(written < 0) {
       strncpy(title, "CATEGORY", max_title_len);
     }
     cats[cat] = title;
@@ -140,33 +141,37 @@ char** get_categories(board_t* game_data) {
  * Extract point values to display on the Jeopardy! game board UI from the 
  * game data sent from the server. Return extracted data
  *
- * \param game_data - data from server containing information on point values
- *                    and metadata for every question
+ * \param game_data - data about the entire game, including question values
  * \return question_point_values - string array of point values and crossed
  *                                 out completed questions
  */
-char** get_board_vals(board_t* game_data) {
-  char* question_done = "XXX";
+char** get_board_vals(game_t* game_data) {
+  char* question_done = "XXXX";
 
   int num_questions = NUM_QUESTIONS_PER_CATEGORY;
   int num_categories = NUM_CATEGORIES;
-  char** question_point_values = (char**)malloc(sizeof(char*)*(num_categories*num_questions));
-  
+  char** question_point_values = malloc(sizeof(char*)*(num_categories*num_questions));
+
+  //points string can hold up to 4 digits and null terminator
+  int num_size = 5;
+
+  // loop through all questions, parsing values into a string array
   for(int cat = 0; cat < num_categories; cat++) {
     for(int q = 0; q < num_questions; q++) {
-
-      int num_size = 4; //point string must hold 3 digits and null terminator
+      // string to hold the point value of the question 
       char* points = (char*) malloc(sizeof(char)*num_size);
       
       //get question point value as a string
-      int written = snprintf(points, num_size, "%d", game_data->points[q][cat]);
+      int written = snprintf(points, num_size, "%d", game_data->categories[cat].questions[q].value);
       //if snprintf fails, just put question_done as a placeholder
-      if(written < 0 || written >= num_size) {
+      if(written < 0) {
         strncpy(points, question_done, num_size);
       }
 
       //assign value if question hasn't been answerd
-      question_point_values[cat*num_categories + q] = game_data->answered[q][cat] ? question_done : points;
+      int already_answered = game_data->categories[cat].questions[q].is_answered;
+      question_point_values[cat*num_categories + q] =
+        already_answered ? question_done : points;
     }
   }
   
@@ -181,13 +186,47 @@ char** get_board_vals(board_t* game_data) {
  *                    necessary for displaying the UI
  * \param categories - array of names of each category of questions
  */
-void display_board(board_t* game_data) {
+void display_board(game_t* game_data) {
   int buffer_space = 13;
   //get category names of truncated length
   char** categories = get_categories(game_data);
   char** point_vals = get_board_vals(game_data);
   
-  printf("+------------------------------------------------------------------------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n|      %s      |      %s      |      %s      |      %s      |      %s     |\n+---------------+---------------+---------------+---------------+--------------+\n", buffer_space, categories[0], buffer_space, categories[1], buffer_space, categories[2], buffer_space, categories[3], buffer_space-1, categories[4], point_vals[0], point_vals[5], point_vals[10], point_vals[15], point_vals[20], point_vals[1], point_vals[6], point_vals[11], point_vals[16], point_vals[21], point_vals[2], point_vals[7], point_vals[12], point_vals[17], point_vals[22], point_vals[3], point_vals[8], point_vals[13], point_vals[18], point_vals[23], point_vals[4], point_vals[9], point_vals[14], point_vals[19], point_vals[24]);
+  printf("+------------------------------------------------------------------------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n",
+         buffer_space, categories[0],
+         buffer_space, categories[1],
+         buffer_space, categories[2],
+         buffer_space, categories[3],
+         buffer_space-1, categories[4],
+         buffer_space, point_vals[0],
+         buffer_space, point_vals[5],
+         buffer_space, point_vals[10],
+         buffer_space, point_vals[15],
+         buffer_space-1, point_vals[20],
+         buffer_space, point_vals[1],
+         buffer_space, point_vals[6],
+         buffer_space, point_vals[11],
+         buffer_space, point_vals[16],
+         buffer_space-1, point_vals[21],
+         buffer_space, point_vals[2],
+         buffer_space, point_vals[7],
+         buffer_space, point_vals[12],
+         buffer_space, point_vals[17],
+         buffer_space-1, point_vals[22],
+         buffer_space, point_vals[3],
+         buffer_space, point_vals[8],
+         buffer_space, point_vals[13],
+         buffer_space, point_vals[18],
+         buffer_space-1, point_vals[23],
+         buffer_space, point_vals[4],
+         buffer_space, point_vals[9],
+         buffer_space, point_vals[14],
+         buffer_space, point_vals[19],
+         buffer_space-1, point_vals[24]);
+
+  // clean up
+  free(categories);
+  free(point_vals);
 }
 
 void display_game(game_t* game) {
@@ -293,7 +332,7 @@ game_t* get_game(input_t* server, game_t* game) {
  * \return validity - boolean, whether or not the coords were valid 
  *                    (True if they are valid, else False) 
  */
-int choice_valid(char* coords, board_t* board) {
+int choice_valid(char* coords, game_t* board) {
   int validity = 0;
   // extract numeric coords within range of 0-4 
   int row = coords[0] - 'A';      //range A-E
@@ -303,7 +342,7 @@ int choice_valid(char* coords, board_t* board) {
   if(row > 4 || row < 0 || col > 4 || col < 0) return validity;
   
   // check question hasn't already been answered
-  if(!board->answered[row][col]) {
+  if(!board->categories[col].questions[row].is_answered) {
     // coords are valid choice
     validity = 1;
   }
@@ -318,14 +357,14 @@ int choice_valid(char* coords, board_t* board) {
  *
  * \param server - communication info for the game server
  */
-void select_question(input_t* server, board_t* board) {
+void select_question(input_t* server, game_t* game) {
   //read client question choice; input must take coordinate form
   //    letter row, number column (A1 through E5)
   int coord_size = 2;
   char coords[coord_size+1];
-  printf("Congrats! You buzzed in first! What question do you choose?\n");
+  printf("It's your turn to pick the question. What question do you choose?\n");
   printf("(Choice must be in coordinate form: letter row, number column (e.g. E5))\n");
-  while(fgets(coords, coord_size, stdin) != NULL && choice_valid(coords, board)) {
+  while(fgets(coords, coord_size, stdin) == NULL || !choice_valid(coords, game)) {
     //read failed
     printf("Unfortunately, that is not a valid choice.\nPlease pick a different question.\n");
   }
