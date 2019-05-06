@@ -6,6 +6,8 @@
 #define NUM_QUESTIONS_PER_CATEGORY 5
 #define NUM_CATEGORIES 5
 #define MAX_NUM_PLAYERS 4
+#define MAX_QUESTION_LENGTH 50
+#define MAX_ANSWER_LENGTH 25
 
 // Definitions for the run status of the game
 enum game_status{GAME_OVER = 0, GAME_ONGOING = 1};
@@ -18,6 +20,7 @@ typedef struct input{
   FILE* from;
   FILE* to;
   int socket_fd;
+  char* username;
 }input_t;
 
 /**
@@ -27,8 +30,8 @@ typedef struct input{
 typedef struct square{
   int value;
   int is_answered;
-  char* question;
-  char* answer;
+  char question[MAX_QUESTION_LENGTH];
+  char answer[MAX_ANSWER_LENGTH];
 } square_t;
 
 /**
@@ -36,7 +39,7 @@ typedef struct square{
  */
 typedef struct category{
   square_t questions[NUM_QUESTIONS_PER_CATEGORY];
-  char* title;
+  char title[MAX_ANSWER_LENGTH];
   int num_questions;
   UT_hash_handle hh;
 }category_t;
@@ -54,8 +57,8 @@ typedef struct player{
  */
 typedef struct game{
   int is_over;
-  category_t* categories[NUM_CATEGORIES];
-  player_t* players[MAX_NUM_PLAYERS];
+  category_t categories[NUM_CATEGORIES];
+  player_t players[MAX_NUM_PLAYERS];
   int num_players;
 } game_t;
 
