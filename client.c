@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include "socket.h"
+#include "deps/socket.h"
 #include "game_structs.h"
 
 #define BOARD_WIDTH 80
@@ -331,8 +331,8 @@ void answer_question(input_t* server) {
     printf("Sorry, we didn't quite catch that. What was your answer?\n");
   }
 
-  // send answer to the server
-  while(write(server->socket_fd, answer, strlen(answer)) == -1) {
+  // send answer to the server (+1 for null terminator)
+  while(write(server->socket_fd, answer, strlen(answer)+1) == -1) {
     // write failed
   }
 }
@@ -543,13 +543,13 @@ int main(int argc, char** argv) {
   server->socket_fd = socket_fd;
 
   // Send username size to the server
-  int len = strlen(my_username);
+  int len = strlen(my_username) + 1;
   while(write(socket_fd, &len, sizeof(int)) == -1) {
     //try again while failing
   }
 
   // Send the username to the server
-  while(write(socket_fd, my_username, sizeof(char) * strlen(my_username)) == -1) {
+  while(write(socket_fd, my_username, sizeof(char) * len) == -1) {
     //try again while failing
   }
   
