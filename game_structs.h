@@ -6,7 +6,7 @@
 
 #define NUM_QUESTIONS_PER_CATEGORY 5
 #define NUM_CATEGORIES 5
-#define MAX_NUM_PLAYERS 4
+#define MAX_NUM_PLAYERS 1
 #define MAX_QUESTION_LENGTH 50
 #define MAX_ANSWER_LENGTH 25
 
@@ -21,7 +21,6 @@ typedef struct input{
   FILE* from;
   FILE* to;
   int socket_fd;
-  char* username;
   int id;
 }input_t;
 
@@ -70,6 +69,7 @@ typedef struct answer {
   time_t time;
   char answer[MAX_ANSWER_LENGTH];
   int did_answer;
+  int id;
   struct answer* next;
 } answer_t;
 
