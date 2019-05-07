@@ -1,6 +1,7 @@
 #ifndef __GAME_STRUCTS__
 #define __GAME_STRUCTS__
 #include <stdio.h>
+#include <time.h>
 #include "deps/uthash.h"
 
 #define NUM_QUESTIONS_PER_CATEGORY 5
@@ -21,6 +22,7 @@ typedef struct input{
   FILE* to;
   int socket_fd;
   char* username;
+  int id;
 }input_t;
 
 /**
@@ -49,6 +51,7 @@ typedef struct category{
  */
 typedef struct player{
   char* name;
+  int id;
   int score;
 } player_t;
 
@@ -60,8 +63,15 @@ typedef struct game{
   category_t categories[NUM_CATEGORIES];
   player_t players[MAX_NUM_PLAYERS];
   int num_players;
+  int id_of_player_turn;
 } game_t;
 
+typedef struct answer {
+  time_t time;
+  char answer[MAX_ANSWER_LENGTH];
+  int did_answer;
+  struct answer* next;
+} answer_t;
 
 /**
  * Contains most data necessary for making the game board UI. Data is simplified

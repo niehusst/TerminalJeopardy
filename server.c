@@ -16,6 +16,10 @@
 
 category_t* category_hashmap = NULL;
 game_t game;
+pthread_mutex_t answer_list_lock;
+pthread_mutex_t add_player_lock;
+
+answer_t* head = NULL;
 
 void truncate_questions_file() {
   FILE* read = fopen("JEOPARDY_QUESTIONS1.json","r");
@@ -138,15 +142,16 @@ int parse_json(FILE* input) {
   return 0;
 }
 
-int add_player(char* name) {
-  // Needs locks
+int add_player(char* name, int id) {
+  pthread_mutex_lock(&add_player_lock);
   if (game.num_players == MAX_NUM_PLAYERS) return 0;
   player_t new_player;
   new_player.name = name;
   new_player.score = 0;
+  new_player.id = id;
   game.players[game.num_players] = new_player;
   game.num_players++;
-  // unlock
+  pthread_mutex_unlock(&add_player_lock);
   return 1;
 }
 
@@ -162,6 +167,7 @@ game_t create_game() {
   game_t game;
   game.num_players = 0;
   game.is_over = 0;
+  game.id_of_player_turn = 0;
 
   category_t* c;
   category_t* temp;
@@ -186,17 +192,44 @@ game_t create_game() {
   return game;
 }
 
+void add_answer_to_list(answer_t* ans) {
+  pthread_mutex_lock(&answer_list_lock);
+  if (head == NULL) {
+    head = ans;
+  } else {
+    answer_t* temp = ans;
+    while (temp->next != NULL && temp->next->time < ans->time) {
+      temp = temp->next;
+    }
+    ans->next = temp->next;
+    temp->next = ans;
+  }
+  pthread_mutex_unlock(&answer_list_lock);
+}
+
+/*
+int get_quickest_answer() {
+  int correct_answer_id = -1;
+  // get correct answer id
+  while (answer_head != NULL && correct_answer_id == -1) {
+      
+  }
+  // free answer list
+
+  return correct_answer_id;
+  }*/
+
 void* handle_client(void* input) {
   // Parse username and add client to board
   input_t* args = (input_t*) input;
-  add_player(args->username);
+  add_player(args->username, args->id);
 
   // Wait for enough players to have connected
   while (game.num_players < 1) {
     sleep(1);
   }
   
-  // send the game
+  // send the game to client
   if (write(args->socket_fd, &game, sizeof(game_t)) != sizeof(game_t)) {
     perror("Writing game didn't work");
     exit(2);
@@ -204,24 +237,92 @@ void* handle_client(void* input) {
   
   // sync up threads
   
-  while (game.num_players < 2) {
-    sleep(1);
+  while (!game.is_over) {
+    // get next question
+    if (game.id_of_player_turn == args->id) {
+      char* sq = (char*) malloc(sizeof(char)*2);
+      if (read(args->socket_fd, &sq, sizeof(char)*2) != sizeof(char)*2) {
+        perror("Reading in square selection didn't work");
+        exit(2);
+      }
+      //  remove question from board and send it to all the users
+      int question_value = 0;
+    
+      // read sizeof time_t
+      answer_t* ans = (answer_t*)malloc(sizeof(answer_t));
+      if (read(args->socket_fd, ans, sizeof(answer_t)) != sizeof(answer_t)) {
+        printf("Answer was not read properly");
+      }
+      add_answer_to_list(ans);
+      // thread 0 always updates the score and board
+      if (args->id == 0) {
+        // check the answers in order
+        int correct_answer_id = get_quickest_answer();
+        if (correct_answer_id != -1) {
+          game.players[correct_answer_id].score += question_value;
+          game.id_of_player_turn = correct_answer_id;
+        }
+      }
+    }
   }
-  
-  //while (game->is_over != 1) {
-    // wait for question selection
-    // pass question to each other player
-    // wait 5 sec for response
-    // if receive response, pause timer and check if correct
-    // break if correct
-    // then pass updated score and board to players
-  //}
 
   return NULL;
 }
 
+void run_game(int server_socket_fd) {
+
+  int counter = 0;
+  pthread_t thrd_arr[num_connections_allowed];
+  while(1){
+    
+    // Wait for a client to connect
+    int client_socket_fd = server_socket_accept(server_socket_fd);
+    if(client_socket_fd == -1) {
+      perror("accept failed");
+      exit(2);
+    }
+	
+    printf("Client connected!\n");
+  
+    // Set up file streams to access the socket
+    FILE* to_client = fdopen(dup(client_socket_fd), "wb");
+    if(to_client == NULL) {
+      perror("Failed to open stream to client");
+      exit(2);
+    }
+  
+    FILE* from_client = fdopen(dup(client_socket_fd), "rb");
+    if(from_client == NULL) {
+      perror("Failed to open stream from client");
+      exit(2);
+    }
+
+    // Set up arguments and spin up new thread
+    input_t* in = (input_t*) malloc(sizeof(input_t));
+    in->to = to_client;
+    in->from = from_client;
+    in->socket_fd = client_socket_fd;
+    in->id = counter;
+
+    in->username = "PLACEHOLDER_USERNAME";
+    printf("Starting thread to handle new client \n");
+    if (pthread_create(&thrd_arr[counter], NULL, handle_client, in)) {
+      perror("PTHREAD CREATE FAILED:");
+    }
+    //pthread_join(thrd_arr[counter], NULL);
+    //break;
+    counter++;
+  }
+}
+
 int main() {
+
+  // Initialize everything
   srand(time(NULL));
+  pthread_mutex_init(&add_player_lock, NULL);
+  pthread_mutex_init(&answer_list_lock, NULL);
+
+  // Parse JSON and create a new game
   FILE* read = fopen("questions.json","r");
   parse_json(read);
   game = create_game();
@@ -234,7 +335,7 @@ int main() {
     exit(2);
   }
 	
-  // Start listening for connections, with a maximum of one queued connection
+  // Start listening for connections
   int num_connections_allowed = MAX_NUM_PLAYERS;
   if(listen(server_socket_fd, num_connections_allowed)) {
     perror("listen failed");
@@ -269,18 +370,20 @@ int main() {
       exit(2);
     }
 
+    // Set up arguments and spin up new thread
     input_t* in = (input_t*) malloc(sizeof(input_t));
     in->to = to_client;
     in->from = from_client;
     in->socket_fd = client_socket_fd;
+    in->id = counter;
 
     in->username = "PLACEHOLDER_USERNAME";
     printf("Starting thread to handle new client \n");
     if (pthread_create(&thrd_arr[counter], NULL, handle_client, in)) {
       perror("PTHREAD CREATE FAILED:");
     }
-    pthread_join(thrd_arr[counter], NULL);
-    break;
+    //pthread_join(thrd_arr[counter], NULL);
+    //break;
     counter++;
   }
   
