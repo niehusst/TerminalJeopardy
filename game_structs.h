@@ -7,8 +7,8 @@
 #define NUM_QUESTIONS_PER_CATEGORY 5
 #define NUM_CATEGORIES 5
 #define MAX_NUM_PLAYERS 1
-#define MAX_QUESTION_LENGTH 50
-#define MAX_ANSWER_LENGTH 25
+#define MAX_QUESTION_LENGTH 200
+#define MAX_ANSWER_LENGTH 80
 
 // Definitions for the run status of the game
 enum game_status{GAME_OVER = 0, GAME_ONGOING = 1};
