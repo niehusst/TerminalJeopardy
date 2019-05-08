@@ -49,7 +49,7 @@ typedef struct category{
  * Information about a player; useful for display information
  */
 typedef struct player{
-  char* name;
+  char name[MAX_ANSWER_LENGTH];
   int id;
   int score;
 } player_t;

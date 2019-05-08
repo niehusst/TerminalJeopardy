@@ -25,14 +25,6 @@ void wait_message() {
   printf("You've joined the game!\nWaiting for all %d people to join the game...\n", MAX_NUM_PLAYERS);
 }
 
-/**
- * Set the game_state global to end the game, and cause the main thread
- * to begin its exit procedures.
- */
-void end_game() {
-  // set the game as over so that the program exit sequence will begin
-  game_state = GAME_OVER;
-}
 
 /**
  * Inform the user that the game has officially ended, and display their final
@@ -40,74 +32,41 @@ void end_game() {
  *
  * \param server - communication info for the game server
  */
-void game_over(input_t* server) { 
-  // Read info on what final results were
-
-  // read scores array
-  int scores[MAX_NUM_PLAYERS];
-  if(read(server->socket_fd, scores, sizeof(int)*MAX_NUM_PLAYERS) !=  sizeof(int)*MAX_NUM_PLAYERS) {
-    // error reading. Init scores to arbitrary values
-    for(int i = 0; i < MAX_NUM_PLAYERS; i++) {
-      scores[i] = 9999;
-    }
-  }
-  // read sizes of each player's username
-  int sizes[MAX_NUM_PLAYERS];
-  if(read(server->socket_fd, sizes, sizeof(int)*MAX_NUM_PLAYERS) !=  sizeof(int)*MAX_NUM_PLAYERS) {
-    // error reading. Init sizes to 0
-    for(int i = 0; i < MAX_NUM_PLAYERS; i++) {
-      sizes[i] = 0;
-    }
-  }
-  
-  // read usernames (bytes according to previously sent sizes)
-  char* usernames[MAX_NUM_PLAYERS];
-  for(int user = 0; user < MAX_NUM_PLAYERS; user++) {
-    char* buf;
-    if(sizes[user] != 0) {
-      
-      // read the username into buf
-      if(read(server->socket_fd, buf, sizes[user]) != sizes[user]) {
-        // error reading username, write a default value
-        buf = malloc(sizeof(char) * 3);
-        for(int i = 0; i < 3; i++) {
-          buf[i] = '?';
-        }
-      }
-      
-    } else {
-      // error reading username, no size of username to get
-      buf = malloc(sizeof(char) * 3);
-
-      // put default into buf
-      for(int i = 0; i < 3; i++) {
-        buf[i] = '?';
-      }
-    }
-
-    // write buf into usernames array
-    usernames[user] = buf;
-  }
-  
+void game_over(game_t* game) { 
   // determine who was the winner (max score)
-  int max = 0;
+  int max = 0; //index of player with max score
   for(int score = 1; score < MAX_NUM_PLAYERS; score++) {
-    if(scores[max] < scores[score]) {
+    if(game->players[max].score < game->players[score].score) {
       max = score;
     }
   }
-  char* winner = usernames[max];
+  char* winner = game->players[max].name;
   
   // Show appropriate UI for end of game
   printf("%s has won the game!\n", winner);
   //print all scores and usernames
   for(int player = 0; player < MAX_NUM_PLAYERS; player++) {
-    printf("Player %s scored: %d\n", usernames[player], scores[player]);
+    printf("Player %s scored: %d\n", game->players[player].name, game->players[player].score);
   }
 
   // Allow user to determine when they are done looking at the message
   printf("(Press Enter to exit)\n");
   getchar(); // wait until user input to finish
+}
+
+/**
+ * Set the game_state global to end the game, and cause the main thread
+ * to begin its exit procedures. Also send game-over notification and 
+ * final scores to the UI so user knows game results.
+ *
+ * \param game - all information about the final state of the game
+ */
+void end_game(game_t* game) {
+  // set the game as over so that the program exit sequence will begin
+  game_state = GAME_OVER;
+
+  // Show game over screen
+  game_over(game);
 }
 
 /**
@@ -523,8 +482,11 @@ void* ui_update(void* server_info) {
     get_game(server, game);
 
     // if game is over, end the game and the UI loop
-    if(game->is_over) end_game();
-
+    if(game->is_over) {
+      end_game(game);
+      break;
+    }
+    
     // show the game board 
     display_game(game);
     
@@ -641,9 +603,6 @@ int main(int argc, char** argv) {
 
   // Block main thread while game is ongoing
   while(game_state) {}
-
-  // Show game over screen
-  game_over(server);
 
   // Close file streams
   fclose(to_server);

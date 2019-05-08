@@ -146,7 +146,7 @@ int add_player(char* name, int id) {
   pthread_mutex_lock(&add_player_lock);
   if (game.num_players == MAX_NUM_PLAYERS) return 0;
   player_t new_player;
-  new_player.name = name;
+  strncpy(new_player.name, name, MAX_ANSWER_LENGTH);
   new_player.score = 0;
   new_player.id = id;
   game.players[game.num_players] = new_player;
