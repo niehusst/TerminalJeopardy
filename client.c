@@ -14,9 +14,7 @@
 // Global variable defining the state of the game as seen by user
 enum game_status game_state = GAME_ONGOING;
 
-//TODO: keep track of a local score by having a total that is existing score and a temp that is the value of the question they are trying to answer (only if it was their turn(this var would be set in the question select function))?
-int player_score = 0;
-int temp_score = 0; //temp is added or subtracted from player score depending on whether or not they answered right
+int my_id;
 char* my_username;
 
 /**
@@ -498,11 +496,13 @@ void get_question(input_t* server) {
  * \return my_turn - boolean, True if it is the client's turn, False otherwise
  */
 int is_my_turn(input_t* server) {
-  int my_turn;
+  int turn_id;
+  // read the id of the client whose turn it is
   while(read(server->socket_fd, &my_turn, sizeof(int)) == -1) {
     // read failed, try again looping
   }
-  return my_turn;
+  // compare my_id and id of player whose turn it is
+  return my_id == turn_id;
 }
 
 /**
@@ -606,6 +606,11 @@ int main(int argc, char** argv) {
 
   // Send the username to the server
   while(write(socket_fd, my_username, sizeof(char) * len) == -1) {
+    //try again while failing
+  }
+
+  // Get your user number back from server
+  while(read(socket_fd, &my_id, sizeof(int)) == -1) {
     //try again while failing
   }
   
