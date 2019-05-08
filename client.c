@@ -108,6 +108,7 @@ void game_over(input_t* server) {
   }
 
   // Allow user to determine when they are done looking at the message
+  printf("(Press Enter to exit)\n");
   getchar(); // wait until user input to finish
 }
 

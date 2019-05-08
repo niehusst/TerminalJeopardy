@@ -1,11 +1,12 @@
 #ifndef __GAME_STRUCTS__
 #define __GAME_STRUCTS__
 #include <stdio.h>
+#include <time.h>
 #include "deps/uthash.h"
 
 #define NUM_QUESTIONS_PER_CATEGORY 5
 #define NUM_CATEGORIES 5
-#define MAX_NUM_PLAYERS 4
+#define MAX_NUM_PLAYERS 1
 #define MAX_QUESTION_LENGTH 50
 #define MAX_ANSWER_LENGTH 25
 
@@ -20,7 +21,7 @@ typedef struct input{
   FILE* from;
   FILE* to;
   int socket_fd;
-  char* username;
+  int id;
 }input_t;
 
 /**
@@ -49,6 +50,7 @@ typedef struct category{
  */
 typedef struct player{
   char* name;
+  int id;
   int score;
 } player_t;
 
@@ -60,7 +62,20 @@ typedef struct game{
   category_t categories[NUM_CATEGORIES];
   player_t players[MAX_NUM_PLAYERS];
   int num_players;
+  int id_of_player_turn;
 } game_t;
+
+/**
+ * Contains information on buzz in time and an answer to a question (if they
+ * did buzz in and they did answer). Also has linked list capability for ... TODO 
+ */
+typedef struct answer {
+  time_t time;
+  char answer[MAX_ANSWER_LENGTH];
+  int did_answer;
+  int id;
+  struct answer* next;
+} answer_t;
 
 /**
  * Contains sizes of the strings required for sending answers to questions to a
