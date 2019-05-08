@@ -28,7 +28,7 @@ void truncate_questions_file() {
   for (int i=0; i<num_lines_wanted; i++) {
     char line[100];
     fgets(line, 100, read);
-    fprintf(write, line);
+    fprintf(write, "%s", line);
   }
 
   fclose(read);
@@ -68,24 +68,19 @@ int check_answer(char* guess, char* answer) {
   return is_correct;
 }
 
-category_t* category_hashmap = NULL;
 int add_square_from_json(char* json_str) {
     cJSON* json_category;
-    cJSON* json_air_date;
     cJSON* json_question;
     cJSON* json_value;
     cJSON* json_answer;
-    cJSON* json_round;
-    cJSON* json_show_number;
     cJSON* json = cJSON_Parse(json_str);
     
     if (json == NULL) {
-      //printf("Question json is NULL!");
       return 0;
     }
 
     // Debugging 
-    //char* parsed_json_as_string = cJSON_Print(json);
+    // char* parsed_json_as_string = cJSON_Print(json);
     //printf("JSON: %s\n", parsed_json_as_string);
     
     json_question = cJSON_GetObjectItem(json, "question");
@@ -94,26 +89,32 @@ int add_square_from_json(char* json_str) {
     json_category = cJSON_GetObjectItem(json, "category");
     
     square_t new_square;
-    new_square.question = cJSON_GetStringValue(json_question);
-    new_square.answer = cJSON_GetStringValue(json_answer);
+    strncpy(new_square.question, cJSON_GetStringValue(json_question), MAX_QUESTION_LENGTH-1);
+    new_square.question[MAX_QUESTION_LENGTH-1] = '\0';
+    strncpy(new_square.answer, cJSON_GetStringValue(json_answer), MAX_ANSWER_LENGTH-1);
+    new_square.answer[MAX_ANSWER_LENGTH-1] = '\0';
     new_square.value = parseValue(cJSON_GetStringValue(json_value));
-    char* category = cJSON_GetStringValue(json_category);
-
+    
+    char category[MAX_ANSWER_LENGTH];
+    strncpy(category, cJSON_GetStringValue(json_category), MAX_ANSWER_LENGTH-1);
+    category[MAX_ANSWER_LENGTH-1] = '\0';
+    //printf("%s", new_square.question);
     category_t* query;
     HASH_FIND_STR(category_hashmap, category, query);
     if (query == NULL) {
       query = malloc(sizeof(category_t));
-      query->title = category;
+      strncpy(query->title, category, MAX_ANSWER_LENGTH-1);
+      query->title[MAX_ANSWER_LENGTH-1] = '\0';
       query->questions[0] = new_square;
       query->num_questions = 1;
       HASH_ADD_STR(category_hashmap, title, query);
     } else if (query->num_questions < NUM_QUESTIONS_PER_CATEGORY) {
       query->questions[query->num_questions] = new_square;
       query->num_questions++;
-    }
+      }
+    
     // TODO: HANDLE FREEING LATER
     //cJSON_Delete(json);
-    
     return 1;
 }
 
@@ -132,7 +133,6 @@ int parse_json(FILE* input) {
     if (json_buffer[0] == ',') {
       json_buffer[0] = ' ';
     }
-
     int success = add_square_from_json(json_buffer);
     if (!success) break;
 
@@ -186,7 +186,7 @@ game_t create_game() {
   int r = rand() % (map_size-5);
   for (int i=0; i<NUM_CATEGORIES; i++) {
     category_t* c = get_category_at_index(r+i);
-    game->categories[i] = c;
+    game.categories[i] = *c;
   }
   
   return game;
@@ -235,7 +235,8 @@ void* handle_client(void* input) {
   input_t* args = (input_t*) input;
   char username[MAX_ANSWER_LENGTH];
   if (read(args->socket_fd, &username, sizeof(char)*MAX_ANSWER_LENGTH) < 0) {
-    username = "Anonymous";
+    char * placeholder = "Anonymous";
+    strncpy(username, placeholder, strlen(placeholder)+1);
   }
   add_player(username, args->id);
 
@@ -286,12 +287,10 @@ void* handle_client(void* input) {
   return NULL;
 }
 
-
 void run_game(int server_socket_fd, int num_connections_allowed) {
   int counter = 0;
   pthread_t thrd_arr[num_connections_allowed];
   while(1){
-
     
     // Wait for a client to connect
     int client_socket_fd = server_socket_accept(server_socket_fd);
@@ -329,14 +328,11 @@ void run_game(int server_socket_fd, int num_connections_allowed) {
     //pthread_join(thrd_arr[counter], NULL);
     //break;
     counter++;
-                   
-    
   }
 }
 
-
-
 int main() {
+
   // Initialize everything
   srand(time(NULL));
   pthread_mutex_init(&add_player_lock, NULL);
@@ -369,24 +365,3 @@ int main() {
 	
   return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
