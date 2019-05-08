@@ -280,12 +280,14 @@ int timed_getchar(int time_out) {
  * has a correctly set system time.
  *
  * \param server - communication info for the game server
+ * \return buzz_time - the system time when user buzzed in, or
+ *                     -1 if the client did not buzz in
  */
-void buzz_in(input_t* server) {
+time_t buzz_in() {
   time_t buzz_time;
-  int time_out = 3;
+  int time_out = 3; //seconds to wait before timed_getchar exits
   
-  printf("Buzz in if you know the answer!\n(Hit enter)\n");
+  printf("Buzz in if you know the answer!\n(Hit enter)");
   // blocking IO call (with timeout) to hold back client until
   // response or time-out
   if(timed_getchar(time_out)) {
@@ -297,10 +299,7 @@ void buzz_in(input_t* server) {
     buzz_time = -1;
   }
 
-  // send buzz-in data to server
-  while(write(server->socket_fd, &buzz_time, sizeof(time_t)) < 0) {
-    //failed to write
-  }
+  return buzz_time;
 }
 
 
@@ -345,7 +344,7 @@ int choice_valid(char* coords, game_t* board) {
     // coords are valid choice
     validity = 1;
   }
-  
+  printf("DEBUG: validiyt: %d\n", validity);
   return validity;
 }
 
@@ -355,11 +354,12 @@ int choice_valid(char* coords, game_t* board) {
  * the same information.
  *
  * \param server - communication info for the game server
+ * \param game - all data about the current state of the game
  */
 void select_question(input_t* server, game_t* game) {
   //read client question choice; input must take coordinate form
   //    letter row, number column (A1 through E5)
-  int coord_size = 2;
+  int coord_size = 3;
   char coords[coord_size+1];
   printf("It's your turn to pick the question. What question do you choose?\n");
   printf("(Choice must be in coordinate form: letter row, number column (e.g. E5))\n");
@@ -367,31 +367,32 @@ void select_question(input_t* server, game_t* game) {
     //read failed
     printf("Unfortunately, that is not a valid choice.\nPlease pick a different question.\n");
   }
-
+  printf("DEBUG: about to send coords %s\n", coords);
   // send coords to server (until success)
   while(write(server->socket_fd, coords, sizeof(char)*coord_size+1) == -1) {}
 }
 
 /**
- * Get user input that is the answer to a displayed question. Send the
- * input answer to the server so it can be distributed to other clients.
+ * Get user input that is the answer to a displayed question. Return the
+ * answer obtained from stdin.
  *
- * \param server - communication info for the game server
+ * \return answer - string, the user input answer to the displayed question
  */
-void answer_question(input_t* server) {
-  size_t max_ans_len = 255;
-  char answer[max_ans_len];
+char* answer_question() {
+  char* answer = malloc(sizeof(char)*MAX_ANSWER_LENGTH);
 
+  printf("Thanks for buzzing in, %s.\nWhat is your answer?\n", my_username);
+
+  // consume whitespace leftover in stdin
+  while((getchar()) != '\n');
+  
   // get client's answer from standard input
-  while(fgets(answer, max_ans_len, stdin) == NULL) {
+  while(fgets(answer, MAX_ANSWER_LENGTH, stdin) == NULL) {
     // error getting input
     printf("Sorry, we didn't quite catch that. What was your answer?\n");
   }
-
-  // send answer to the server (+1 for null terminator)
-  while(write(server->socket_fd, answer, strlen(answer)+1) == -1) {
-    // write failed
-  }
+  printf("DEBUG: returning from answering qeutison\n");
+  return answer;
 }
 
 /**
@@ -470,39 +471,39 @@ void display_question(char* q) {
  * Get the question that were selected by the client whose turn it was.
  * Serves to blocks client until the buzz-in period begins.
  *
- * \param server - communication info for the game server  
+ * \param server - communication info for the game server
+ * \param game - all information about the current state of the game  
  */
-void get_question(input_t* server) {
-  // read size of question
-  int size_of_question;
-  while(read(server->socket_fd, &size_of_question, sizeof(int)) == -1) {
+void get_question(input_t* server, game_t* game) {
+  // read question coordinates
+  int coord_size = 3; //2 coord chars, null char
+  char* q_coords = malloc(sizeof(char)*coord_size);
+  printf("DEBUG: bout read coords from server\n");
+  if(read(server->socket_fd, q_coords, sizeof(char)*coord_size) < sizeof(char)*coord_size) {
     // read failed, try again looping
+    perror("read less than expected\n");
   }
-  
-  // read question
-  char* question;
-  while(read(server->socket_fd, question, sizeof(char)*size_of_question) == -1) {
-    // read failed, try again looping
-  }
-  
-  // show on UI
+  printf("DEBUG: parse q from coords (%s)\n", q_coords);
+  // parse question string from received coords
+  int row = q_coords[0] - 'A';      //range A-E
+  int col = q_coords[1] - '0' - 1;  //range 1-5
+  printf("DEBUG: coords are r:%d c:%d\n", row, col);
+  char* question = game->categories[col].questions[row].question;
+
+  // free location allocated for now useless coords
+  free(q_coords);
+  // show question on UI
   display_question(question);
 }
 
 /**
- * Get data from the server, telling this client if it is their turn.
+ * Check the game state for the id of the client whose turn it currently is.
  *
- * \param server - contains all info necessary for communicating with the server
- * \return my_turn - boolean, True if it is the client's turn, False otherwise
+ * \param game - contains all info about current game state
+ * \return - boolean, True if it is the client's turn, False otherwise
  */
-int is_my_turn(input_t* server) {
-  int turn_id;
-  // read the id of the client whose turn it is
-  while(read(server->socket_fd, &my_turn, sizeof(int)) == -1) {
-    // read failed, try again looping
-  }
-  // compare my_id and id of player whose turn it is
-  return my_id == turn_id;
+int is_my_turn(game_t* game) {
+  return my_id == game->id_of_player_turn;
 }
 
 /**
@@ -527,28 +528,43 @@ void* ui_update(void* server_info) {
     // show the game board 
     display_game(game);
     
-    // (have function return server response??)
-    if(is_my_turn(server)) {
+    // if it is the clients turn, have them select the question
+    if(is_my_turn(game)) {
       select_question(server, game);
     }
-
+    
     // get the selected question from the server
-    get_question(server);
+    get_question(server, game);
 
     /*
       Everyone can buzz in and everyone can submit an answer if
-      they buzzed in, but only the client who buzzed first will
-      get the points for answering.
+      they buzzed in (regardless of buzz order), but only the
+      client who buzzed first will get the points for answering.
      */
-    buzz_in(server); // buzz if you know the answer
-    answer_question(server);
-    
+    answer_t ans; // save data from buzz/answer period
+    time_t buzz_time = buzz_in();
+    // check if client buzzed in
+    if(buzz_time != -1) {
+      // copy the result of answer_question into answer array
+      strncpy(ans.answer, answer_question(), MAX_ANSWER_LENGTH);
+    } else {
+      printf("Too late to buzz in!\n");
+    }
+
+    // send buzz/answer period data to server
+    ans.did_answer = buzz_time != -1;
+    ans.time = buzz_time;
+    printf("DEBUG: about to send answer struct\n");
+    if(write(server->socket_fd, &ans, sizeof(answer_t)) < sizeof(answer_t)) {
+      perror("Writing answer to server failed\n");
+    }
+    printf("DEBUG: getting answer of this round from server\n");
     // block until server responds with results of answering period 
     get_answers(server);
   }
   
+  // clean up
   free(game);
-
   return NULL;
 }
 
@@ -599,7 +615,7 @@ int main(int argc, char** argv) {
   server->socket_fd = socket_fd;
 
   // Send username size to the server
-  int len = strlen(my_username) + 1;
+  int len = MAX_ANSWER_LENGTH < (strlen(my_username) + 1) ? MAX_ANSWER_LENGTH : (strlen(my_username) + 1);
   while(write(socket_fd, &len, sizeof(int)) == -1) {
     //try again while failing
   }
@@ -613,6 +629,8 @@ int main(int argc, char** argv) {
   while(read(socket_fd, &my_id, sizeof(int)) == -1) {
     //try again while failing
   }
+
+  printf("my id is %d\n", my_id); // DEBUG
   
   // Notify user that game has been joined
   wait_message();

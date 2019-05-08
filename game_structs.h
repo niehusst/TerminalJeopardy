@@ -72,7 +72,7 @@ typedef struct game{
 typedef struct answer {
   time_t time;
   char answer[MAX_ANSWER_LENGTH];
-  int did_answer;
+  int did_answer; // boolean
   int id;
   struct answer* next;
 } answer_t;
