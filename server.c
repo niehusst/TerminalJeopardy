@@ -14,6 +14,10 @@
 
 #define BUFFER_LEN 256
 
+/*
+TODO: who get the points if 1 player buzzes in first but gets it wrong, and another player buzzes in later but gets it right? 
+*/
+
 category_t* category_hashmap = NULL;
 game_t game;
 pthread_mutex_t answer_list_lock;
@@ -95,7 +99,8 @@ int add_square_from_json(char* json_str) {
     strncpy(new_square.answer, cJSON_GetStringValue(json_answer), MAX_ANSWER_LENGTH-1);
     new_square.answer[MAX_ANSWER_LENGTH-1] = '\0';
     new_square.value = parseValue(cJSON_GetStringValue(json_value));
-    
+    new_square.is_answered = 0;
+
     char category[MAX_ANSWER_LENGTH];
     strncpy(category, cJSON_GetStringValue(json_category), MAX_ANSWER_LENGTH-1);
     category[MAX_ANSWER_LENGTH-1] = '\0';
@@ -256,8 +261,6 @@ void* handle_client(void* input) {
   }
   
   // TODO: sync up threads?
-
-  // avoid remallocing too much memory by reusing the same malloced space 
   
   char* coords = (char*) malloc(sizeof(char)*2);
   while (1) {

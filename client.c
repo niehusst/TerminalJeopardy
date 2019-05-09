@@ -40,7 +40,7 @@ void game_over(game_t* game) {
   char* winner = game->players[max].name;
   
   // Show appropriate UI for end of game
-  printf("%s has won the game!\n", winner);
+  printf("\n%s has won the game!\n", winner);
   //print all scores and usernames
   for(int player = 0; player < MAX_NUM_PLAYERS; player++) {
     printf("Player %s scored: %d\n", game->players[player].name, game->players[player].score);
@@ -156,7 +156,7 @@ void display_board(game_t* game_data) {
          buffer_space, categories[1],
          buffer_space, categories[2],
          buffer_space, categories[3],
-         buffer_space-1, categories[4],
+         buffer_space, categories[4],
          buffer_space, point_vals[0],
          buffer_space, point_vals[5],
          buffer_space, point_vals[10],
@@ -186,23 +186,6 @@ void display_board(game_t* game_data) {
   // clean up
   free(categories);
   free(point_vals);
-}
-
-
-// same as display board, but shows whole category name
-void display_game(game_t* game) {
-  
-  for (int c=0; c<NUM_CATEGORIES; c++) {
-    printf(" | %s | ", game->categories[c].title);
-  }
-  printf("\n");
-  for (int c=0; c<NUM_CATEGORIES; c++) {
-    for (int q=0; q<NUM_QUESTIONS_PER_CATEGORY; q++) {
-      printf(" | %d | ", game->categories[q].questions[c].value);
-    }
-    printf("\n");
-  }
-  return;
 }
 
 
@@ -247,20 +230,20 @@ int timed_getchar(int time_out) {
  */
 time_t buzz_in() {
   time_t buzz_time;
-  int time_out = 30; //seconds to wait before timed_getchar exits
+  int time_out = 4; //seconds to wait before timed_getchar exits
   
   printf("Buzz in if you know the answer! (Hit enter)\n");
   // blocking IO call (with timeout) to hold back client until
   // response or time-out
   if(timed_getchar(time_out)) {
-    getchar(); //consume any commandline input
+    //getchar(); //consume any commandline input
     //get system time of buzz in
     buzz_time = time(NULL);
   } else {
     //client didn't buzz in, set buzz_time to specific value
     buzz_time = -1;
   }
-
+  getchar();
   return buzz_time;
 }
 
@@ -271,7 +254,7 @@ time_t buzz_in() {
  *
  * \param server - communication info for the game server
  * \param game - the struct to write the read game into
- * \return board - the struct containing game data sent from the server  
+ * \return game - the struct containing game data sent from the server  
  */
 game_t* get_game(input_t* server, game_t* game) {
   // read game_t from server and save into parameter game
@@ -330,6 +313,8 @@ void select_question(input_t* server, game_t* game) {
   while(fgets(coords, coord_size, stdin) == NULL || !choice_valid(coords, game)) {
     //read failed
     printf("Unfortunately, that is not a valid choice.\nPlease pick a different question.\n");
+    //consume whitespace from invalid coord choice
+    while(getchar() != '\n');
   }
 
   // send coords to server (until success)
@@ -465,13 +450,10 @@ int is_my_turn(game_t* game) {
  * \param game - contains all info about current game state
  */
 void score_update(game_t* game) {
-  printf("| CURRENT SCORES:\n");
+  printf("\n| CURRENT SCORES:\n");
   //print all scores and usernames
   for(int player = 0; player < MAX_NUM_PLAYERS; player++) {
     printf("| %s: %d\n", game->players[player].name, game->players[player].score);
-    if(player != MAX_NUM_PLAYERS -1) {
-      printf("+-------------------------------\n");
-    }
   }
 }
 
@@ -501,7 +483,6 @@ void* ui_update(void* server_info) {
     score_update(game);
     
     // show the game board 
-    //display_game(game);
     display_board(game); //TODO: make this show more of category names
     
     // if it is the clients turn, have them select the question
@@ -511,6 +492,9 @@ void* ui_update(void* server_info) {
     
     // get the selected question from the server
     get_question(server, game);
+
+    // provide some time for players to read the question
+    sleep(3);
 
     /*
       Everyone can buzz in and everyone can submit an answer if
@@ -537,7 +521,9 @@ void* ui_update(void* server_info) {
     
     // block until server responds with results of answering period 
     get_answers(server, game);
-
+    
+    // provide a few moments for the user to read the scores
+    sleep(3);
   }
   
   // clean up
@@ -630,9 +616,3 @@ int main(int argc, char** argv) {
   return 0;
 }
 
-
-/* TODO::::
-
-fix display answer to show better info and deal with noone answering (using game infor)
-
- */
