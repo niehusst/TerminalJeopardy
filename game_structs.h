@@ -67,7 +67,9 @@ typedef struct game{
 
 /**
  * Contains information on buzz in time and an answer to a question (if they
- * did buzz in and they did answer). Also has linked list capability for ... TODO 
+ * did buzz in and they did answer). Also has linked list capability for server
+ * to keep track of all the answers from clients in the question answering 
+ * period.
  */
 typedef struct answer {
   time_t time;
@@ -78,14 +80,7 @@ typedef struct answer {
 } answer_t;
 
 /**
- * Contains sizes of the strings required for sending answers to questions to a
- * client from the server.
+ * Contains the information for 
  */
-typedef struct answer_sizes {
-  int pred_ans_size;
-  int real_ans_size;
-  int user_size;
-} answer_sizes_t;
-
 
 #endif

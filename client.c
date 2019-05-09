@@ -8,9 +8,6 @@
 #include "deps/socket.h"
 #include "game_structs.h"
 
-#define BOARD_WIDTH 80
-#define BOARD_HEIGHT 20
-
 // Global variable defining the state of the game as seen by user
 enum game_status game_state = GAME_ONGOING;
 
@@ -62,11 +59,11 @@ void game_over(game_t* game) {
  * \param game - all information about the final state of the game
  */
 void end_game(game_t* game) {
-  // set the game as over so that the program exit sequence will begin
-  game_state = GAME_OVER;
-
   // Show game over screen
   game_over(game);
+
+  // set the game as over so that the program exit sequence will begin
+  game_state = GAME_OVER;
 }
 
 /**
@@ -77,7 +74,7 @@ void end_game(game_t* game) {
  */
 char** get_categories(game_t* game_data) {
   char** cats = (char**) malloc(sizeof(char*)*NUM_CATEGORIES);
-  int max_title_len = 11;
+  int max_title_len = 15; // limit size of title that can appear on board
   
   for(int cat = 0; cat < NUM_CATEGORIES; cat++) {
     //write upto max_title_len characters into the category title
@@ -128,8 +125,12 @@ char** get_board_vals(game_t* game_data) {
 
       //assign value if question hasn't been answerd
       int already_answered = game_data->categories[cat].questions[q].is_answered;
-      question_point_values[cat*num_categories + q] =
-        already_answered ? question_done : points;
+
+      if(already_answered) {
+        question_point_values[cat*num_categories + q] = question_done;
+      } else {
+        question_point_values[cat*num_categories + q] = points;
+      }
     }
   }
   
@@ -150,7 +151,7 @@ void display_board(game_t* game_data) {
   char** categories = get_categories(game_data);
   char** point_vals = get_board_vals(game_data);
   
-  printf("+------------------------------------------------------------------------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n",
+  printf("+------------------------------------------------------------------------------+\n| %*s | %*s | %*s | %*s | %*s|\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n",
          buffer_space, categories[0],
          buffer_space, categories[1],
          buffer_space, categories[2],
@@ -187,6 +188,8 @@ void display_board(game_t* game_data) {
   free(point_vals);
 }
 
+
+// same as display board, but shows whole category name
 void display_game(game_t* game) {
   
   for (int c=0; c<NUM_CATEGORIES; c++) {
@@ -244,9 +247,9 @@ int timed_getchar(int time_out) {
  */
 time_t buzz_in() {
   time_t buzz_time;
-  int time_out = 3; //seconds to wait before timed_getchar exits
+  int time_out = 30; //seconds to wait before timed_getchar exits
   
-  printf("Buzz in if you know the answer!\n(Hit enter)");
+  printf("Buzz in if you know the answer! (Hit enter)\n");
   // blocking IO call (with timeout) to hold back client until
   // response or time-out
   if(timed_getchar(time_out)) {
@@ -292,8 +295,8 @@ game_t* get_game(input_t* server, game_t* game) {
 int choice_valid(char* coords, game_t* board) {
   int validity = 0;
   // extract numeric coords within range of 0-4 
-  int row = coords[0] - 'A';      //range A-E
-  int col = coords[1] - '0' - 1;  //range 1-5
+  int col = coords[0] - 'A';      //range A-E
+  int row = coords[1] - '0' - 1;  //range 1-5
   
   // check coords are within range
   if(row > 4 || row < 0 || col > 4 || col < 0) return validity;
@@ -303,9 +306,10 @@ int choice_valid(char* coords, game_t* board) {
     // coords are valid choice
     validity = 1;
   }
-  printf("DEBUG: validiyt: %d\n", validity);
+
   return validity;
 }
+
 
 /**
  * Get user input, allowing the user to select the question they 
@@ -320,15 +324,17 @@ void select_question(input_t* server, game_t* game) {
   //    letter row, number column (A1 through E5)
   int coord_size = 3;
   char coords[coord_size+1];
+  
   printf("It's your turn to pick the question. What question do you choose?\n");
-  printf("(Choice must be in coordinate form: letter row, number column (e.g. E5))\n");
+  printf("(Choice must be in coordinate form: letter column, number row (e.g. E5))\n");
   while(fgets(coords, coord_size, stdin) == NULL || !choice_valid(coords, game)) {
     //read failed
     printf("Unfortunately, that is not a valid choice.\nPlease pick a different question.\n");
   }
-  printf("DEBUG: about to send coords %s\n", coords);
+
   // send coords to server (until success)
   while(write(server->socket_fd, coords, sizeof(char)*coord_size+1) == -1) {}
+
 }
 
 /**
@@ -350,27 +356,37 @@ char* answer_question() {
     // error getting input
     printf("Sorry, we didn't quite catch that. What was your answer?\n");
   }
-  printf("DEBUG: returning from answering qeutison\n");
+  
   return answer;
 }
 
 /**
- * Display the real and guessed answers to the ~beautiful~ UI for
- * a few seconds.
+ * Display the real and guessed answers to the ~beautiful~ UI.
  *
- * \param real - string, the actual answer to the question
- * \param predicted - string, the answer guessed by the client who buzzed 
- * \param answerer - string, the username of the client who answered
- * \param is_correct - bool, True if the answer was correct, else False
+ * \param game - contains all current info about the game state
+ * \param ans - contains all the information about the results of the
+ *              most recent buzz/answer period
  */
-void display_answers(char* real, char* predicted, char* answerer, int is_correct) {
-  printf("%s said:\n%s\n\n", answerer, predicted);
-  
-  // display the true answer if their guess was wrong
-  if(is_correct) {
-    printf("That was absolutely correct!\n");
+void display_answers(game_t* game, answer_t* ans) {
+  // if anybody answered correctly, show their username
+  if(ans->did_answer) {
+    // search through players in game struct for the username of answerer id
+    char* answerer;
+    for(int player = 0; player < MAX_NUM_PLAYERS; player++) {
+      if(game->players[player].id == ans->id) {
+        answerer = game->players[player].name;
+      }
+    }
+    
+    if(ans->id != my_id) {
+      printf("Sorry, %s, looks like you didn't buzz in quick enough.\n", my_username);
+    }
+    
+    printf("%s buzzed in first and said:\n%s\n\n", answerer, ans->answer);
+    printf("That was absolutely right!\n");
   } else {
-    printf("Unfortuneately, the correct answer was,\n%s\n\n", real);
+    // nobody buzzed in/nobody answered correctly
+    printf("It appears nobody got the answer right. The correct answer was:\n%s\n",ans->answer);
   }
 }
 
@@ -381,40 +397,18 @@ void display_answers(char* real, char* predicted, char* answerer, int is_correct
  *
  * \param server - communication info for the game server
  */
-void get_answers(input_t* server) {
-  answer_sizes_t sizes;
+void get_answers(input_t* server, game_t* game) {
+  answer_t* correct_ans = malloc(sizeof(answer_t));
   
-  //read info on sizes of future reads from server
-  while(read(server->socket_fd, &sizes, sizeof(answer_sizes_t)) == -1) {
-    // try again while failing
-  }
-
-  // read predicted answer
-  char* pred;
-  while(read(server->socket_fd, pred, sizeof(char)*sizes.pred_ans_size) == -1) {
-    // try again while failing
-  }
- 
-  // read actual answer
-  char* real;
-  while(read(server->socket_fd, real, sizeof(char)*sizes.real_ans_size) == -1) {
-    // try again while failing
-  }
-  
-  // read username
-  char* user;
-  while(read(server->socket_fd, user, sizeof(char)*sizes.user_size) == -1) {
-    // try again while failing
-  }
-  
-  // read whether answer was correct
-  int is_correct;
-  while(read(server->socket_fd, &is_correct, sizeof(int)) == -1) {
-    // try again while failing
+  //read question answer info from server
+  if(read(server->socket_fd, correct_ans, sizeof(answer_t)) < sizeof(answer_t)) {
+    perror("reading correct answers failed");
   }
   
   //display correct answer and attempted answer w/ correctness to UI
-  display_answers(real, pred, user, is_correct);
+  display_answers(game, correct_ans);
+
+  free(correct_ans);
 }
 
 /**
@@ -437,16 +431,16 @@ void get_question(input_t* server, game_t* game) {
   // read question coordinates
   int coord_size = 3; //2 coord chars, null char
   char* q_coords = malloc(sizeof(char)*coord_size);
-  printf("DEBUG: bout read coords from server\n");
-  if(read(server->socket_fd, q_coords, sizeof(char)*coord_size) < sizeof(char)*coord_size) {
+
+  if(read(server->socket_fd, q_coords, sizeof(char)*coord_size) <
+     sizeof(char)*coord_size) {
     // read failed, try again looping
     perror("read less than expected\n");
   }
-  printf("DEBUG: parse q from coords (%s)\n", q_coords);
+
   // parse question string from received coords
-  int row = q_coords[0] - 'A';      //range A-E
-  int col = q_coords[1] - '0' - 1;  //range 1-5
-  printf("DEBUG: coords are r:%d c:%d\n", row, col);
+  int col = q_coords[0] - 'A';      //range A-E
+  int row = q_coords[1] - '0' - 1;  //range 1-5
   char* question = game->categories[col].questions[row].question;
 
   // free location allocated for now useless coords
@@ -463,6 +457,22 @@ void get_question(input_t* server, game_t* game) {
  */
 int is_my_turn(game_t* game) {
   return my_id == game->id_of_player_turn;
+}
+
+/**
+ * Display on the UI the latest scores for all the players.
+ *
+ * \param game - contains all info about current game state
+ */
+void score_update(game_t* game) {
+  printf("| CURRENT SCORES:\n");
+  //print all scores and usernames
+  for(int player = 0; player < MAX_NUM_PLAYERS; player++) {
+    printf("| %s: %d\n", game->players[player].name, game->players[player].score);
+    if(player != MAX_NUM_PLAYERS -1) {
+      printf("+-------------------------------\n");
+    }
+  }
 }
 
 /**
@@ -486,9 +496,13 @@ void* ui_update(void* server_info) {
       end_game(game);
       break;
     }
+
+    // Show latest update of scores
+    score_update(game);
     
     // show the game board 
-    display_game(game);
+    //display_game(game);
+    display_board(game); //TODO: make this show more of category names
     
     // if it is the clients turn, have them select the question
     if(is_my_turn(game)) {
@@ -516,13 +530,14 @@ void* ui_update(void* server_info) {
     // send buzz/answer period data to server
     ans.did_answer = buzz_time != -1;
     ans.time = buzz_time;
-    printf("DEBUG: about to send answer struct\n");
+    
     if(write(server->socket_fd, &ans, sizeof(answer_t)) < sizeof(answer_t)) {
       perror("Writing answer to server failed\n");
     }
-    printf("DEBUG: getting answer of this round from server\n");
+    
     // block until server responds with results of answering period 
-    get_answers(server);
+    get_answers(server, game);
+
   }
   
   // clean up
@@ -591,8 +606,6 @@ int main(int argc, char** argv) {
   while(read(socket_fd, &my_id, sizeof(int)) == -1) {
     //try again while failing
   }
-
-  printf("my id is %d\n", my_id); // DEBUG
   
   // Notify user that game has been joined
   wait_message();
@@ -616,3 +629,10 @@ int main(int argc, char** argv) {
 	
   return 0;
 }
+
+
+/* TODO::::
+
+fix display answer to show better info and deal with noone answering (using game infor)
+
+ */
