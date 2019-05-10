@@ -8,6 +8,11 @@
 #include "deps/socket.h"
 #include "game_structs.h"
 
+/*
+chmod a+rx /home/niehusst/os213/project/
+chmod a+rx /home/niehusst/os213/project/client
+ */
+
 // Global variable defining the state of the game as seen by user
 enum game_status game_state = GAME_ONGOING;
 
@@ -67,26 +72,50 @@ void end_game(game_t* game) {
 }
 
 /**
- * Get the list of category titles (truncated to maximum size if necessary)
+ * Get the list of category titles (truncated to maximum size if necessary).
+ * The category title can be up to 26 characters across 2 rows of the UI.
  * 
  * \param game_data - data about the entire game, including question values
  * \return cats - string array of category titles
  */
 char** get_categories(game_t* game_data) {
-  char** cats = (char**) malloc(sizeof(char*)*NUM_CATEGORIES);
-  int max_title_len = 15; // limit size of title that can appear on board
+  /*
+    TODO: make this do line wrap for 2 rows WITHOUT CRASHING
+
+for some reason the first title of first row is pooP?? but then it fixes itself?? 
+   */
+  // double size of num_categories for twice the row space
+  // for cat names
+  char** cats = (char**) malloc(sizeof(char*)*2*NUM_CATEGORIES);
+  // limit to size of portion of title that can fit in 1 row
+  int max_title_len = 14; 
   
   for(int cat = 0; cat < NUM_CATEGORIES; cat++) {
-    //write upto max_title_len characters into the category title
-    //(only that many in order to fit in printf UI)
-    char* title = (char*) malloc(sizeof(char)*max_title_len);
-    int written = snprintf(title, max_title_len-1, "%s", game_data->categories[cat].title);
-    
-    //if snprintf fails, just put CATEGORY as a placeholder
-    if(written < 0) {
-      strncpy(title, "CATEGORY", max_title_len);
-    }
-    cats[cat] = title;
+    // check if this title needs to be split across 2 rows
+    if(strlen(game_data->categories[cat].title) >= max_title_len) {
+      // the title is too long to fit on one line, so split
+      // in multiple rows
+
+      // get the first part of the title
+      char* title = (char*) malloc(sizeof(char)*max_title_len);
+      int limit = cat==NUM_CATEGORIES-1 ? max_title_len-2 : max_title_len-1;
+      title = strndup(game_data->categories[cat].title,sizeof(char)*limit);
+
+      // write null terminator to cut in half title
+      //title[strlen(title)+1] = '\0';
+
+      // save first part of title on first row
+      cats[cat] = title;
+      // save second part of title on the second row
+      cats[cat+NUM_CATEGORIES] = strndup(game_data->categories[cat].title+limit,sizeof(char)*limit);
+
+    } else {
+      // the title can fit in one line! 
+      // save the title on the first line
+      cats[cat] = strdup(game_data->categories[cat].title);
+      // write empty string to second line
+      cats[cat+NUM_CATEGORIES] = "";
+    }  
   }
   
   return cats;
@@ -151,12 +180,19 @@ void display_board(game_t* game_data) {
   char** categories = get_categories(game_data);
   char** point_vals = get_board_vals(game_data);
   
-  printf("+------------------------------------------------------------------------------+\n| %*s | %*s | %*s | %*s | %*s|\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n",
+  printf("+------------------------------------------------------------------------------+\n| %*s | %*s | %*s | %*s | %*s |\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n| %*s | %*s | %*s | %*s | %*s |\n+---------------+---------------+---------------+---------------+--------------+\n",
+         // print the category titles
          buffer_space, categories[0],
          buffer_space, categories[1],
          buffer_space, categories[2],
          buffer_space, categories[3],
-         buffer_space, categories[4],
+         buffer_space-1, categories[4],
+         buffer_space, categories[5],
+         buffer_space, categories[6],
+         buffer_space, categories[7],
+         buffer_space, categories[8],
+         buffer_space-1, categories[9],
+         // print the values
          buffer_space, point_vals[0],
          buffer_space, point_vals[5],
          buffer_space, point_vals[10],
@@ -184,7 +220,7 @@ void display_board(game_t* game_data) {
          buffer_space-1, point_vals[24]);
 
   // clean up
-  free(categories);
+  //free(categories); // TODO: this causes fuckery
   free(point_vals);
 }
 
@@ -618,6 +654,8 @@ int main(int argc, char** argv) {
 /* TODO:
 client: when don't buzz in it calls getchar which makes it ambiguous if you can or cant buzz in. try chanign it back an ssee the behavior? 
 
-
 the person whose turn it isn't has to sumbit twice (there is a dangling getchar somewhere)
+
+receipts for succesfully sent answer
+
  */
