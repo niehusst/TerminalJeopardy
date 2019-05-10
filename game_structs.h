@@ -6,7 +6,7 @@
 
 #define NUM_QUESTIONS_PER_CATEGORY 5
 #define NUM_CATEGORIES 5
-#define MAX_NUM_PLAYERS 1
+#define MAX_NUM_PLAYERS 2 
 #define MAX_QUESTION_LENGTH 300
 #define MAX_ANSWER_LENGTH 40
 
@@ -51,6 +51,7 @@ typedef struct category{
 typedef struct player{
   char name[MAX_ANSWER_LENGTH];
   int id;
+  int socket_fd;
   int score;
 } player_t;
 
