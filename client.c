@@ -272,14 +272,13 @@ time_t buzz_in() {
   // blocking IO call (with timeout) to hold back client until
   // response or time-out
   if(timed_getchar(time_out)) {
-    //getchar(); //consume any commandline input
     //get system time of buzz in
     buzz_time = time(NULL);
   } else {
     //client didn't buzz in, set buzz_time to specific value
     buzz_time = -1;
   }
-  getchar();
+ 
   return buzz_time;
 }
 
@@ -355,7 +354,7 @@ void select_question(input_t* server, game_t* game) {
 
   // send coords to server (until success)
   while(write(server->socket_fd, coords, sizeof(char)*coord_size+1) == -1) {}
-
+  getchar();//consume any leftover commandline input from the coord selection stage
 }
 
 /**
