@@ -14,9 +14,6 @@
 
 #define BUFFER_LEN 256
 
-/*
-TODO: who get the points if 1 player buzzes in first but gets it wrong, and another player buzzes in later but gets it right? 
-*/
 
 category_t* category_hashmap = NULL;
 game_t game;
@@ -28,7 +25,7 @@ int sync_threads_a = 0, sync_threads_g = 0;;
 int last_thread_a = 0, last_thread_g = 0;
 int remaining_questions = 25; // global count to track game progress
 
-
+// global linked list of answers for each round
 answer_t* head = NULL;
 
 void truncate_questions_file() {
@@ -204,6 +201,11 @@ game_t create_game() {
   return game;
 }
 
+/**
+ * Add an answer struct to the head of the global answer linked list.
+ *
+ * \param ans - the struct to add to the head of the list
+ */
 void add_answer_to_list(answer_t* ans) {
   pthread_mutex_lock(&answer_list_lock);
   printf("adding answer %s\n", ans->answer);
@@ -220,7 +222,16 @@ void add_answer_to_list(answer_t* ans) {
   pthread_mutex_unlock(&answer_list_lock);
 }
 
-
+/**
+ * Finds the earliest correct answer in the global linked list of 
+ * answers for this round (or none if nobody answered at-all/correctly).
+ *
+ * \param answer - string, the ground truth answer to the current
+ *                 question. Used for comparing against user guesses
+ * \return correct_answer_id - the id number of the client who answered
+ *                             the question correctly the earliest, or
+ *                             if no one answered correctly/at-all, -1
+ */
 int get_quickest_answer(char* answer) {
   int correct_answer_id = -1;
   time_t best_time = -1;
@@ -244,6 +255,15 @@ int get_quickest_answer(char* answer) {
   return correct_answer_id;
 }
 
+/**
+ * Syncs up the threads running handle_client so that none of the clients
+ * get out of sync with each other. This one uses syncing variables for
+ * the beginning of the loop, right before the game_t struct is sent.
+ *
+ * \param args - struct containing ID information for the thread that is
+ *               running it. (and less importantly, communication info
+ *               for the client the thread handles) 
+ */
 void wait_for_sync_game(input_t* args) {
   // show that the client this thread handles is ready
   pthread_mutex_lock(&sync_lock_g);
@@ -267,7 +287,7 @@ void wait_for_sync_game(input_t* args) {
   }
   printf("%d: exting game sync while last is %d\n",args->id, last_thread_g);
 
-  // thread whose turn it is has responsibility of reseting count
+  // last thread to exit the function must clean up
   if(last_thread_g < 1) {
     pthread_mutex_lock(&sync_lock_g);
     printf("%d is realeasing game sync\n",args->id);
@@ -276,6 +296,16 @@ void wait_for_sync_game(input_t* args) {
   }
 }
 
+
+/**
+ * Syncs up the threads running handle_client so that none of the clients
+ * get out of sync with each other. This one uses syncing variables for
+ * right before the client submitted answers are to be checked.
+ *
+ * \param args - struct containing ID information for the thread that is
+ *               running it. (and less importantly, communication info
+ *               for the client the thread handles) 
+ */
 void wait_for_sync_answers(input_t* args) {
   // show that the client this thread handles is ready
   pthread_mutex_lock(&sync_lock_a);
@@ -299,7 +329,7 @@ void wait_for_sync_answers(input_t* args) {
   }
   printf("%d exting ans sync while last is %d\n",args->id, last_thread_a);
 
-  // thread whose turn it is has responsibility of reseting count
+  // last thread to exit the function must clean up
   if(last_thread_a < 1) {
     pthread_mutex_lock(&sync_lock_a);
     printf("%d is realeasing ans sync\n",args->id);
@@ -322,7 +352,7 @@ void* handle_client(void* input) {
     strncpy(username, placeholder, strlen(placeholder)+1);
   }
   // add player to board
-  add_player(username, args); // CHANGED: id is socket_fd to allow any thread to contact all clients
+  add_player(username, args); 
   if (write(args->socket_fd, &args->id, sizeof(int)) != sizeof(int)) {
     perror("Unable to send id to client!");
   }
@@ -336,17 +366,17 @@ void* handle_client(void* input) {
   char* coords = (char*) malloc(sizeof(char)*2);
   // communication loop with designated client
   while (1) {
-    // sync threds
+    // sync threads so everyone starts the round at the same time
     wait_for_sync_game(args);
     
-    // send the game to client
+    // send the latest game state to client
     if (write(args->socket_fd, &game, sizeof(game_t)) != sizeof(game_t)) {
       perror("Writing game didn't work");
       return NULL;
     }
 
-    // only exit if game is over after game is sent to clients so that clients
-    // also know that game is over.
+    // only exit if game is over after game_t is sent to clients so 
+    // that clients also know that game is over.
     if (game.is_over) break;
     
     // get next question
@@ -355,16 +385,17 @@ void* handle_client(void* input) {
     int coord_size = 3; //2 coord chars, null char
     int row, col;
     printf("Waiting on coords selection from user\n");
-    // only 1 thread (corresponding to the client who buzzed first) can enter
+    // get question coordinates from the client
     if (game.id_of_player_turn == args->id) {
-      // get question coordinates from the client
+      // read char type coords from client
       if (read(args->socket_fd, coords, sizeof(char)*coord_size) != sizeof(char)*coord_size) {
         perror("Reading in square selection didn't work");
         exit(2);
       }
-    
+      // convert coordinates to int 
       col = coords[0] - 'A';      //range A-E
       row = coords[1] - '0' - 1;  //range 1-5
+      // get the answer and question value
       question_value = game.categories[col].questions[row].value;
       correct_ans = game.categories[col].questions[row].answer;
 
@@ -375,8 +406,7 @@ void* handle_client(void* input) {
       // decrement global count of remaining questions
       remaining_questions--;
       
-      //TODO: save read coords to somewhere other threads can see so that they can all send the same coords to their clients?
-      // TODO: send coords to all clients from just one thread??
+      // send coords to all clients from this thread
       for(int player = 0; player < MAX_NUM_PLAYERS; player++) {
         if(write(game.players[player].socket_fd, coords, sizeof(char)*coord_size) !=
            sizeof(char)*coord_size) {
@@ -396,6 +426,7 @@ void* handle_client(void* input) {
     add_answer_to_list(ans);
 
     // sync up threads so that all the answers are in
+    // before checking for the fastest one
     wait_for_sync_answers(args);
     
     // thread whose turn it is responsible for updating scores and board
@@ -409,14 +440,13 @@ void* handle_client(void* input) {
       printf("Submitted: %s, correct: %s\n", ans->answer, correct_ans);
       correct_answer_id = get_quickest_answer(correct_ans);
 
-      // update score and player turn if someone answered correctly
+      // update score and player turn if client answered correctly
       if (correct_answer_id != -1) {
-        game.players[correct_answer_id].score += question_value; //TODO: what if this isn't set locally in thread 0 because a differnt client answered??
+        game.players[correct_answer_id].score += question_value;
         game.id_of_player_turn = correct_answer_id;
       }
 
-      // TODO: move these following thigns into the update section??? <does a single thread have ability to send data to all the clients???>
-      // TODO: send answer and answer correctness to all clients
+      // build answer struct containing results of the answereing round
       ans->id = game.id_of_player_turn;
       memcpy(ans->answer, correct_ans, MAX_ANSWER_LENGTH); //write in correct answer
       if (correct_answer_id == -1) {
@@ -426,7 +456,7 @@ void* handle_client(void* input) {
       }
 
       // send the answer struct back with results of answering round
-      //TODO: send to all clients
+      // to all clients
       for(int player = 0; player < MAX_NUM_PLAYERS; player++) {
         if (write(game.players[player].socket_fd, ans, sizeof(answer_t)) != sizeof(answer_t)) {
           perror("Sending correct answer doesn't work!");
