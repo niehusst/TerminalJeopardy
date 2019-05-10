@@ -22,7 +22,12 @@ category_t* category_hashmap = NULL;
 game_t game;
 pthread_mutex_t answer_list_lock;
 pthread_mutex_t add_player_lock;
-int remaining_questions = 25;
+// variables for syncing threads that communicate with clients
+pthread_mutex_t sync_lock_a, sync_lock_g;
+int sync_threads_a = 0, sync_threads_g = 0;; 
+int last_thread_a = 0, last_thread_g = 0;
+int remaining_questions = 25; // global count to track game progress
+
 
 answer_t* head = NULL;
 
@@ -201,15 +206,16 @@ game_t create_game() {
 
 void add_answer_to_list(answer_t* ans) {
   pthread_mutex_lock(&answer_list_lock);
+  printf("adding answer %s\n", ans->answer);
+
   if (head == NULL) {
+    // adding first answer as head
     head = ans;
+    head->next = NULL;
   } else {
-    answer_t* temp = ans;
-    while (temp->next != NULL && temp->next->time < ans->time) {
-      temp = temp->next;
-    }
-    ans->next = temp->next;
-    temp->next = ans;
+    // add new node to front of the list
+    ans->next = head;
+    head = ans;
   }
   pthread_mutex_unlock(&answer_list_lock);
 }
@@ -220,7 +226,7 @@ int get_quickest_answer(char* answer) {
   time_t best_time = -1;
   // get correct answer id
   while (head != NULL) {
-    printf("CHECKING A NODE: %d %d\n", head->did_answer, check_answer(head->answer, answer));
+    printf("checking answer \"%s\". Did answer:%d correctness:%d\n", head->answer, head->did_answer, check_answer(head->answer, answer));
     if (head->did_answer && check_answer(head->answer, answer)) {
       if (best_time == -1 || head->time < best_time) {
         correct_answer_id = head->id;
@@ -238,6 +244,69 @@ int get_quickest_answer(char* answer) {
   return correct_answer_id;
 }
 
+void wait_for_sync_game(input_t* args) {
+  // show that the client this thread handles is ready
+  pthread_mutex_lock(&sync_lock_g);
+  sync_threads_g++;
+  last_thread_g++; // for preventing deadlock in this function
+  printf("%d: game Synced %d out of %d\n", args->id, sync_threads_g, MAX_NUM_PLAYERS);
+  pthread_mutex_unlock(&sync_lock_g);
+
+  while(1) {
+    // check if other threads are ready for next portion of game
+    pthread_mutex_lock(&sync_lock_g);
+    
+    // if all threads have synced, continue with game play
+    if(sync_threads_g == MAX_NUM_PLAYERS) {
+      last_thread_g--;
+      pthread_mutex_unlock(&sync_lock_g);
+      break;
+    } else {
+      pthread_mutex_unlock(&sync_lock_g);
+    }
+  }
+  printf("%d: exting game sync while last is %d\n",args->id, last_thread_g);
+
+  // thread whose turn it is has responsibility of reseting count
+  if(last_thread_g < 1) {
+    pthread_mutex_lock(&sync_lock_g);
+    printf("%d is realeasing game sync\n",args->id);
+    sync_threads_g = 0;
+    pthread_mutex_unlock(&sync_lock_g);
+  }
+}
+
+void wait_for_sync_answers(input_t* args) {
+  // show that the client this thread handles is ready
+  pthread_mutex_lock(&sync_lock_a);
+  sync_threads_a++;
+  last_thread_a++; // for preventing deadlock in this function
+  printf("%d: ans Synced %d out of %d\n", args->id, sync_threads_a, MAX_NUM_PLAYERS);
+  pthread_mutex_unlock(&sync_lock_a);
+
+  while(1) {
+    // check if other threads are ready for next portion of game
+    pthread_mutex_lock(&sync_lock_a);
+    
+    // if all threads have synced, continue with game play
+    if(sync_threads_a == MAX_NUM_PLAYERS) {
+      last_thread_a--;
+      pthread_mutex_unlock(&sync_lock_a);
+      break;
+    } else {
+      pthread_mutex_unlock(&sync_lock_a);
+    }
+  }
+  printf("%d exting ans sync while last is %d\n",args->id, last_thread_a);
+
+  // thread whose turn it is has responsibility of reseting count
+  if(last_thread_a < 1) {
+    pthread_mutex_lock(&sync_lock_a);
+    printf("%d is realeasing ans sync\n",args->id);
+    sync_threads_a = 0;
+    pthread_mutex_unlock(&sync_lock_a);
+  }
+}
 
 
 void* handle_client(void* input) {
@@ -262,13 +331,14 @@ void* handle_client(void* input) {
   while (game.num_players < MAX_NUM_PLAYERS) {
     usleep(500);
   }
-  
-  // TODO: sync up threads?
-  // to sync, do some fancy locking shit??
+
   
   char* coords = (char*) malloc(sizeof(char)*2);
   // communication loop with designated client
   while (1) {
+    // sync threds
+    wait_for_sync_game(args);
+    
     // send the game to client
     if (write(args->socket_fd, &game, sizeof(game_t)) != sizeof(game_t)) {
       perror("Writing game didn't work");
@@ -319,15 +389,18 @@ void* handle_client(void* input) {
     // get answer and buzz-time from the client
     answer_t* ans = (answer_t*)malloc(sizeof(answer_t));
     while (read(args->socket_fd, ans, sizeof(answer_t)) != sizeof(answer_t)) {
-      perror("Answer was not read properly");
+      fprintf(stderr, "Answer was not read properly by server from client %d\n", args->id);
     }
     // add the read information to the list of answers for this round
     ans->id = args->id;
     add_answer_to_list(ans);
+
+    // sync up threads so that all the answers are in
+    wait_for_sync_answers(args);
     
-    // thread 0 always updates the score and board  TODO: maybe make it thread whose turn it is responsibiltiy?
+    // thread whose turn it is responsible for updating scores and board
     int correct_answer_id = -1;
-    if (args->id == 0) {
+    if (game.id_of_player_turn == args->id) {
 
       // set game as over if there are no more valid questions
       if(remaining_questions == 0) game.is_over = 1;
@@ -361,7 +434,7 @@ void* handle_client(void* input) {
       }
     
     }
-    //TODO: will other threads wait??? stick on read of answer struct?
+    
   }
   
   return NULL;
@@ -446,13 +519,11 @@ int main() {
 
   // Run the game
   run_game(server_socket_fd, num_connections_allowed);
+
+  printf("Game is over, server exiting\n");
   close(server_socket_fd);
 	
   return 0;
 }
 
-/* TODO:
-does answer linked list get freed?
-does player struct contain contact info? can it (as the id?)?
 
- */

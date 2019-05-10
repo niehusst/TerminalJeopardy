@@ -615,4 +615,9 @@ int main(int argc, char** argv) {
 	
   return 0;
 }
+/* TODO:
+client: when don't buzz in it calls getchar which makes it ambiguous if you can or cant buzz in. try chanign it back an ssee the behavior? 
 
+
+the person whose turn it isn't has to sumbit twice (there is a dangling getchar somewhere)
+ */
