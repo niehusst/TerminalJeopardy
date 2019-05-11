@@ -12,20 +12,23 @@
 #include "deps/uthash.h"
 #include "deps/levenshtein.h"
 
-#define BUFFER_LEN 256
-
-/*
-TODO: who get the points if 1 player buzzes in first but gets it wrong, and another player buzzes in later but gets it right? 
-*/
-
+// Parsing JSON variables
 category_t* category_hashmap = NULL;
+
+// Creating game variables
 game_t game;
-pthread_mutex_t answer_list_lock;
 pthread_mutex_t add_player_lock;
 int remaining_questions = 25;
 
-answer_t* head = NULL;
+// Checking of submitted answers
+pthread_mutex_t answer_list_lock;
+answer_t* answers_head = NULL;
 
+
+/**
+ * Takes in a JSON file and outputs a new file of the first num_lines_wanted
+ * lines of the file in order to have a reasonably sized file
+ */
 void truncate_questions_file() {
   FILE* read = fopen("JEOPARDY_QUESTIONS1.json","r");
   FILE* write = fopen("questions.json","w");
@@ -40,6 +43,11 @@ void truncate_questions_file() {
   fclose(write);
 }
 
+/**
+ * Convert a value amount of $NUMBER string format into an integer
+ *
+ * \param val_str - the string that should be parsed
+ */
 int parseValue(char* val_str) {
   int val = 0;
   if (val_str == NULL) return val;
@@ -50,15 +58,27 @@ int parseValue(char* val_str) {
   return val;
 }
 
+/**
+ * Takes in a string and returns the string in all lower case
+ *
+ * \param string - the string to make lower case
+ */
 char* str_tolower(char* string) {
   int len = strlen(string);
   char *ret = (char*) malloc(sizeof(char) * len);
   for(int i = 0; i < len; i++) {
-    ret[i] = toupper(string[i]);
+    ret[i] = tolower(string[i]);
   }
   return ret;
 }
 
+/**
+ * Uses the levenshtein algorithm to determine if a guess is close
+ * enough to the answer to be considered correct
+ *
+ * \param guess - the user's guess
+ * \param answer - the correct answer
+ */
 int check_answer(char* guess, char* answer) {
   int is_correct = 0;
   char* guess_formatted = str_tolower(guess);
@@ -73,6 +93,12 @@ int check_answer(char* guess, char* answer) {
   return is_correct;
 }
 
+/**
+ * Given a json string for a single board square (containing the question, 
+ * answer, value, and category) create a new square and add it to the hashmap
+ *
+ * \param json_str - the json string to parse as a square
+ */
 int add_square_from_json(char* json_str) {
     cJSON* json_category;
     cJSON* json_question;
@@ -84,15 +110,13 @@ int add_square_from_json(char* json_str) {
       return 0;
     }
 
-    // Debugging 
-    // char* parsed_json_as_string = cJSON_Print(json);
-    //printf("JSON: %s\n", parsed_json_as_string);
-    
+    // Get JSON objects
     json_question = cJSON_GetObjectItem(json, "question");
     json_answer = cJSON_GetObjectItem(json, "answer");
     json_value = cJSON_GetObjectItem(json, "value");
     json_category = cJSON_GetObjectItem(json, "category");
-    
+
+    // Copy the string versions of the JSON objects into a new struct
     square_t new_square;
     strncpy(new_square.question, cJSON_GetStringValue(json_question), MAX_QUESTION_LENGTH-1);
     new_square.question[MAX_QUESTION_LENGTH-1] = '\0';
@@ -104,7 +128,9 @@ int add_square_from_json(char* json_str) {
     char category[MAX_ANSWER_LENGTH];
     strncpy(category, cJSON_GetStringValue(json_category), MAX_ANSWER_LENGTH-1);
     category[MAX_ANSWER_LENGTH-1] = '\0';
-    //printf("%s", new_square.question);
+
+    // Try to find the category of the question in the Hashmap. If it's there, add the square to
+    // the existing category. If the category isn't not there, create a new hashmap entry and add it
     category_t* query;
     HASH_FIND_STR(category_hashmap, category, query);
     if (query == NULL) {
@@ -117,21 +143,26 @@ int add_square_from_json(char* json_str) {
     } else if (query->num_questions < NUM_QUESTIONS_PER_CATEGORY) {
       query->questions[query->num_questions] = new_square;
       query->num_questions++;
-      }
+    }
     
     // TODO: HANDLE FREEING LATER
     //cJSON_Delete(json);
     return 1;
 }
 
-// clrs textbook
+/**
+ * Read in a JSON file object by object and pass each object to the parser
+ * 
+ * \param input - the JSON file to read from
+ */
 int parse_json(FILE* input) {
   int max_file_size = 100000;
   char buffer[max_file_size];
   fgets(buffer, max_file_size, input);
   char token[2] = "}";
   char* next = strtok(buffer, token);
-  
+
+  // Loop over each JSON object
   while (next != '\0') {
     char json_buffer[max_file_size];
     strcpy(json_buffer, next);
@@ -148,6 +179,12 @@ int parse_json(FILE* input) {
   return 0;
 }
 
+/**
+ * Adds a new player to the game  with the given name and id if there is room
+ *
+ * \param name - the name of the player
+ * \param id - the id of the player (unique)
+ */
 int add_player(char* name, int id) {
   pthread_mutex_lock(&add_player_lock);
   if (game.num_players == MAX_NUM_PLAYERS) return 0;
@@ -161,6 +198,11 @@ int add_player(char* name, int id) {
   return 1;
 }
 
+/**
+ * Simply iterates through the hashmap 'index' times to get the entry and 'index'
+ *
+ * \param index - the index we want to get
+ */
 category_t* get_category_at_index(int index) {
   category_t* c = category_hashmap;
   for (int i=0; i<index; i++) {
@@ -169,6 +211,9 @@ category_t* get_category_at_index(int index) {
   return c;
 }
 
+/**
+ * Creates an empty game, including filling out the Jeopardy board 
+ */
 game_t create_game() {
   game_t game;
   game.num_players = 0;
@@ -198,10 +243,15 @@ game_t create_game() {
   return game;
 }
 
+/**
+ * Adds the answer ans to the list of answers to be checked later (thread safe)
+ *
+ * param ans - the answer struct submitted by a user
+ */
 void add_answer_to_list(answer_t* ans) {
   pthread_mutex_lock(&answer_list_lock);
-  if (head == NULL) {
-    head = ans;
+  if (answers_head == NULL) {
+    answers_head = ans;
   } else {
     answer_t* temp = ans;
     while (temp->next != NULL && temp->next->time < ans->time) {
@@ -213,23 +263,28 @@ void add_answer_to_list(answer_t* ans) {
   pthread_mutex_unlock(&answer_list_lock);
 }
 
-
+/**
+ * Returns the user id of the user who correctly answered the question the quickest.
+ * Returns -1 if no user answered correctly in time
+ * 
+ * \param answer - the correct answer to check against all users' answers
+ */
 int get_quickest_answer(char* answer) {
   int correct_answer_id = -1;
   time_t best_time = -1;
   // get correct answer id
-  while (head != NULL) {
-    printf("CHECKING A NODE: %d %d\n", head->did_answer, check_answer(head->answer, answer));
-    if (head->did_answer && check_answer(head->answer, answer)) {
-      if (best_time == -1 || head->time < best_time) {
-        correct_answer_id = head->id;
-        best_time = head->time;
+  while (answers_head != NULL) {
+    printf("CHECKING A NODE: %d %d\n", answers_head->did_answer, check_answer(answers_head->answer, answer));
+    if (answers_head->did_answer && check_answer(answers_head->answer, answer)) {
+      if (best_time == -1 || answers_head->time < best_time) {
+        correct_answer_id = answers_head->id;
+        best_time = answers_head->time;
       }
     }
     
     // free node
-    answer_t* temp = head;
-    head = head->next;
+    answer_t* temp = answers_head;
+    answers_head = answers_head->next;
     free(temp);
   }
 
@@ -237,6 +292,11 @@ int get_quickest_answer(char* answer) {
   return correct_answer_id;
 }
 
+/**
+ * Thread function to handle each client that connected to the game
+ *
+ * \param input - an input struct that contains all necessary info (name, fd, etc.)
+ */
 void* handle_client(void* input) {
   // Parse username and add client to board
   input_t* args = (input_t*) input;
@@ -355,6 +415,13 @@ void* handle_client(void* input) {
   return NULL;
 }
 
+/**
+ * Runs the game loop including waiting for clients to connect and setting up
+ * the appropriate file streams
+ *
+ * \param server_socket_fd - the fd of the server
+ * \param num_connections_allowed - the number of connections the server should allow
+ */
 void run_game(int server_socket_fd, int num_connections_allowed) {
   int counter = 0;
   pthread_t thrd_arr[num_connections_allowed];
@@ -400,6 +467,9 @@ void run_game(int server_socket_fd, int num_connections_allowed) {
   }
 }
 
+/**
+ * Sets up the server and runs the game
+ */
 int main() {
 
   // Initialize everything
