@@ -18,11 +18,16 @@ category_t* category_hashmap = NULL;
 // Creating game variables
 game_t game;
 pthread_mutex_t add_player_lock;
-int remaining_questions = 25;
+// variables for syncing threads that communicate with clients
+pthread_mutex_t sync_lock_a, sync_lock_g;
+int sync_threads_a = 0, sync_threads_g = 0;; 
+int last_thread_a = 0, last_thread_g = 0;
+int remaining_questions = 25; // global count to track game progress
 
 // Checking of submitted answers
 pthread_mutex_t answer_list_lock;
 answer_t* answers_head = NULL;
+
 
 
 /**
@@ -180,18 +185,24 @@ int parse_json(FILE* input) {
 }
 
 /**
- * Adds a new player to the game  with the given name and id if there is room
+ * Adds a new player to the game with the given name and id if there is room
  *
  * \param name - the name of the player
- * \param id - the id of the player (unique)
+ * \param args - contains the (unique) id of the player and the socket number
+ *               that can be used to send network data to them
+ * \return - boolean, True if player was succesfully added, else False
  */
-int add_player(char* name, int id) {
+int add_player(char* name, input_t* args) {
   pthread_mutex_lock(&add_player_lock);
+  // only add player if the max number has not yet been reached
   if (game.num_players == MAX_NUM_PLAYERS) return 0;
+
+  // fill in necessary player data
   player_t new_player;
   strncpy(new_player.name, name, MAX_ANSWER_LENGTH);
   new_player.score = 0;
-  new_player.id = id;
+  new_player.id = args->id;
+  new_player.socket_fd = args->socket_fd;
   game.players[game.num_players] = new_player;
   game.num_players++;
   pthread_mutex_unlock(&add_player_lock);
@@ -199,9 +210,10 @@ int add_player(char* name, int id) {
 }
 
 /**
- * Simply iterates through the hashmap 'index' times to get the entry and 'index'
+ * Simply iterates through the hashmap 'index' times to get the entry at 'index'
  *
  * \param index - the index we want to get
+ * \return c - the entry at position index in the category_hashmap
  */
 category_t* get_category_at_index(int index) {
   category_t* c = category_hashmap;
@@ -213,6 +225,9 @@ category_t* get_category_at_index(int index) {
 
 /**
  * Creates an empty game, including filling out the Jeopardy board 
+ *
+ * \return game - a filled out game_t struct containing categories parsed randomly to
+ *                make the game different *every time 
  */
 game_t create_game() {
   game_t game;
@@ -250,31 +265,35 @@ game_t create_game() {
  */
 void add_answer_to_list(answer_t* ans) {
   pthread_mutex_lock(&answer_list_lock);
-  if (answers_head == NULL) {
+
+  if (head == NULL) {
+    // adding first answer as head
     answers_head = ans;
+    answers_head->next = NULL;
   } else {
-    answer_t* temp = ans;
-    while (temp->next != NULL && temp->next->time < ans->time) {
-      temp = temp->next;
-    }
-    ans->next = temp->next;
-    temp->next = ans;
+    // add new node to front of the list
+    ans->next = head;
+    head = ans;
   }
   pthread_mutex_unlock(&answer_list_lock);
 }
 
 /**
- * Returns the user id of the user who correctly answered the question the quickest.
- * Returns -1 if no user answered correctly in time
+ * Returns the user id of the client who correctly answered the question the quickest.
+ * Returns -1 if no user answered correctly (or at all) in time 
  * 
  * \param answer - the correct answer to check against all users' answers
+ * \return correct_answer_id - the id number of the client who answered
+ *                             the question correctly the earliest, or
+ *                             if no one answered correctly/at-all, -1
  */
 int get_quickest_answer(char* answer) {
   int correct_answer_id = -1;
   time_t best_time = -1;
-  // get correct answer id
+  
+  // get client id of fastest correct answer 
   while (answers_head != NULL) {
-    printf("CHECKING A NODE: %d %d\n", answers_head->did_answer, check_answer(answers_head->answer, answer));
+    printf("checking answer \"%s\". Did answer:%d correctness:%d\n", answers_head->answer, answers_head->did_answer, check_answer(answers_head->answer, answer));
     if (answers_head->did_answer && check_answer(answers_head->answer, answer)) {
       if (best_time == -1 || answers_head->time < best_time) {
         correct_answer_id = answers_head->id;
@@ -292,13 +311,94 @@ int get_quickest_answer(char* answer) {
   return correct_answer_id;
 }
 
+
+/**
+ * Syncs up the threads running handle_client so that none of the clients
+ * get out of sync with each other. This one uses syncing variables for
+ * the beginning of the loop, right before the game_t struct is sent.
+ *
+ * \param args - struct containing ID information for the thread that is
+ *               running it. (and less importantly, communication info
+ *               for the client the thread handles) 
+ */
+void wait_for_sync_game(input_t* args) {
+  // show that the client this thread handles is ready
+  pthread_mutex_lock(&sync_lock_g);
+  sync_threads_g++;
+  last_thread_g++; // for preventing deadlock in this function
+  pthread_mutex_unlock(&sync_lock_g);
+
+  while(1) {
+    // check if other threads are ready for next portion of game
+    pthread_mutex_lock(&sync_lock_g);
+    
+    // if all threads have synced, continue with game play
+    if(sync_threads_g == MAX_NUM_PLAYERS) {
+      last_thread_g--;
+      pthread_mutex_unlock(&sync_lock_g);
+      break;
+    } else {
+      pthread_mutex_unlock(&sync_lock_g);
+    }
+  }
+
+  // last thread to exit the function must clean up
+  if(last_thread_g < 1) {
+    pthread_mutex_lock(&sync_lock_g);
+    sync_threads_g = 0;
+    pthread_mutex_unlock(&sync_lock_g);
+  }
+}
+
+
+/**
+ * Syncs up the threads running handle_client so that none of the clients
+ * get out of sync with each other. This one uses syncing variables for
+ * right before the client submitted answers are to be checked.
+ *
+ * \param args - struct containing ID information for the thread that is
+ *               running it. (and less importantly, communication info
+ *               for the client the thread handles) 
+ */
+void wait_for_sync_answers(input_t* args) {
+  // show that the client this thread handles is ready
+  pthread_mutex_lock(&sync_lock_a);
+  sync_threads_a++;
+  last_thread_a++; // for preventing deadlock in this function
+  pthread_mutex_unlock(&sync_lock_a);
+
+  while(1) {
+    // check if other threads are ready for next portion of game
+    pthread_mutex_lock(&sync_lock_a);
+    
+    // if all threads have synced, continue with game play
+    if(sync_threads_a == MAX_NUM_PLAYERS) {
+      last_thread_a--;
+      pthread_mutex_unlock(&sync_lock_a);
+      break;
+    } else {
+      pthread_mutex_unlock(&sync_lock_a);
+    }
+  }
+ 
+
+  // last thread to exit the function must clean up
+  if(last_thread_a < 1) {
+    pthread_mutex_lock(&sync_lock_a);
+    sync_threads_a = 0;
+    pthread_mutex_unlock(&sync_lock_a);
+  }
+}
+
+
 /**
  * Thread function to handle each client that connected to the game
  *
  * \param input - an input struct that contains all necessary info (name, fd, etc.)
+ *                for networking with a designated client
  */
 void* handle_client(void* input) {
-  // Parse username and add client to board
+  // Parse username
   input_t* args = (input_t*) input;
   char username[MAX_ANSWER_LENGTH];
   int user_len = 0 ;
@@ -309,29 +409,32 @@ void* handle_client(void* input) {
     char* placeholder = "Anonymous";
     strncpy(username, placeholder, strlen(placeholder)+1);
   }
-
-  add_player(username, args->id);
+  // add player to board
+  add_player(username, args); 
   if (write(args->socket_fd, &args->id, sizeof(int)) != sizeof(int)) {
     perror("Unable to send id to client!");
   }
 
-  // Wait for enough players to have connected
+  // Wait for enough players to have connected to play game
   while (game.num_players < MAX_NUM_PLAYERS) {
-    sleep(1);
+    usleep(500);
   }
-  
-  // TODO: sync up threads?
+
   
   char* coords = (char*) malloc(sizeof(char)*2);
+  // communication loop with designated client
   while (1) {
-    // send the game to client
+    // sync threads so everyone starts the round at the same time
+    wait_for_sync_game(args);
+    
+    // send the latest game state to client
     if (write(args->socket_fd, &game, sizeof(game_t)) != sizeof(game_t)) {
       perror("Writing game didn't work");
       return NULL;
     }
 
-    // only exit if game is over after game is sent to clients so that clients
-    // also know that game is over.
+    // only exit if game is over after game_t is sent to clients so 
+    // that clients also know that game is over.
     if (game.is_over) break;
     
     // get next question
@@ -340,15 +443,17 @@ void* handle_client(void* input) {
     int coord_size = 3; //2 coord chars, null char
     int row, col;
     printf("Waiting on coords selection from user\n");
-    // only 1 thread (corresponding to the client who buzzed first) can enter
+    // get question coordinates from the client
     if (game.id_of_player_turn == args->id) {
+      // read char type coords from client
       if (read(args->socket_fd, coords, sizeof(char)*coord_size) != sizeof(char)*coord_size) {
-        perror("Reading in square selection didn't work");
+        perror("Reading in question selection didn't work");
         exit(2);
       }
-    
+      // convert coordinates to int 
       col = coords[0] - 'A';      //range A-E
       row = coords[1] - '0' - 1;  //range 1-5
+      // get the answer and question value
       question_value = game.categories[col].questions[row].value;
       correct_ans = game.categories[col].questions[row].answer;
 
@@ -359,57 +464,62 @@ void* handle_client(void* input) {
       // decrement global count of remaining questions
       remaining_questions--;
       
-      //TODO: save read coords to somewhere other threads can see so that they can all send the same coords to their clients?
+      // send coords to all clients from this thread
+      for(int player = 0; player < MAX_NUM_PLAYERS; player++) {
+        if(write(game.players[player].socket_fd, coords, sizeof(char)*coord_size) !=
+           sizeof(char)*coord_size) {
+          perror("Unable to send question coords!");
+        }
+      }
     }
 
     
-    // TODO: send coords to all clients from just one thread??
-    if(write(args->socket_fd, coords, sizeof(char)*coord_size) !=
-       sizeof(char)*coord_size) {
-      perror("Unable to send question coords!");
-    }
-
+    // get answer and buzz-time from the client
     answer_t* ans = (answer_t*)malloc(sizeof(answer_t));
-    // TODO: get answers from all the clients
     while (read(args->socket_fd, ans, sizeof(answer_t)) != sizeof(answer_t)) {
-      perror("Answer was not read properly");
+      fprintf(stderr, "Answer was not read properly by server from client %d\n", args->id);
     }
-    
+    // add the read information to the list of answers for this round
     ans->id = args->id;
     add_answer_to_list(ans);
-    // thread 0 always updates the score and board
+
+    // sync up threads so that all the answers are in
+    // before checking for the fastest one
+    wait_for_sync_answers(args);
+    
+    // thread whose turn it is responsible for updating scores and board
     int correct_answer_id = -1;
-    if (args->id == 0) {
+    if (game.id_of_player_turn == args->id) {
 
       // set game as over if there are no more valid questions
       if(remaining_questions == 0) game.is_over = 1;
       
       // check the answers' correctness in order
-      printf("Submitted: %s, correct: %s\n", ans->answer, correct_ans);
       correct_answer_id = get_quickest_answer(correct_ans);
 
-      // update score and turn if someone answered correctly
+      // update score and player turn if client answered correctly
       if (correct_answer_id != -1) {
-        game.players[correct_answer_id].score += question_value; //TODO: what happens when this isn't set locally in thread 0 because a differnt client answered??
+        game.players[correct_answer_id].score += question_value;
         game.id_of_player_turn = correct_answer_id;
       }
-    }
 
-    // TODO: send answer and answer correctness to all clients
-    ans->id = game.id_of_player_turn;
-    memcpy(ans->answer, correct_ans, MAX_ANSWER_LENGTH); //write in correct answer
-    if (correct_answer_id == -1) {
-      ans->did_answer = 0;
-    } else {
-      ans->did_answer = 1;
-    }
+      // build answer struct containing results of the answereing round
+      ans->id = game.id_of_player_turn;
+      memcpy(ans->answer, correct_ans, MAX_ANSWER_LENGTH); //write in correct answer
+      if (correct_answer_id == -1) {
+        ans->did_answer = 0;
+      } else {
+        ans->did_answer = 1;
+      }
 
-    // send the answer struct back with results of answering round
-    //TODO: send to all clients
-    if (write(args->socket_fd, ans, sizeof(answer_t)) != sizeof(answer_t)) {
-      perror("Sending correct answer doesn't work!");
+      // send the answer struct back with results of answering round
+      // to all clients
+      for(int player = 0; player < MAX_NUM_PLAYERS; player++) {
+        if (write(game.players[player].socket_fd, ans, sizeof(answer_t)) != sizeof(answer_t)) {
+          perror("Sending correct answer doesn't work!");
+        }
+      }
     }
-    
   }
   
   return NULL;
@@ -423,10 +533,11 @@ void* handle_client(void* input) {
  * \param num_connections_allowed - the number of connections the server should allow
  */
 void run_game(int server_socket_fd, int num_connections_allowed) {
-  int counter = 0;
+  // threads to handle each of the clients that connects 
   pthread_t thrd_arr[num_connections_allowed];
-  while(1){
-    if(game.is_over) break;
+
+  // launch threads to handle each client
+  for(int client = 0; client < num_connections_allowed; client++) {
     
     // Wait for a client to connect
     int client_socket_fd = server_socket_accept(server_socket_fd);
@@ -435,7 +546,7 @@ void run_game(int server_socket_fd, int num_connections_allowed) {
       exit(2);
     }
 	
-    printf("Client connected!\n");
+    printf("Client %d connected!\n", client);
   
     // Set up file streams to access the socket
     FILE* to_client = fdopen(dup(client_socket_fd), "wb");
@@ -443,7 +554,6 @@ void run_game(int server_socket_fd, int num_connections_allowed) {
       perror("Failed to open stream to client");
       exit(2);
     }
-  
     FILE* from_client = fdopen(dup(client_socket_fd), "rb");
     if(from_client == NULL) {
       perror("Failed to open stream from client");
@@ -455,20 +565,24 @@ void run_game(int server_socket_fd, int num_connections_allowed) {
     in->to = to_client;
     in->from = from_client;
     in->socket_fd = client_socket_fd;
-    in->id = counter;
+    in->id = client;
 
     printf("Starting thread to handle new client \n");
-    if (pthread_create(&thrd_arr[counter], NULL, handle_client, in)) {
+    if (pthread_create(&thrd_arr[client], NULL, handle_client, in)) {
       perror("PTHREAD CREATE FAILED:");
     }
-    //pthread_join(thrd_arr[counter], NULL);
-    //break;
-    counter++;
+  }
+
+  // join threads as each one exits at the end of the game
+  for(int i = 0; i < num_connections_allowed; i++) {
+    if(pthread_join(thrd_arr[i], NULL) != 0) {
+      perror("Failed to join thread");
+    }
   }
 }
 
 /**
- * Sets up the server and runs the game
+ * Sets up the server and starts running the game
  */
 int main() {
 
@@ -500,7 +614,11 @@ int main() {
 
   // Run the game
   run_game(server_socket_fd, num_connections_allowed);
+
+  printf("Game is over, server exiting\n");
   close(server_socket_fd);
 	
   return 0;
 }
+
+

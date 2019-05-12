@@ -272,21 +272,22 @@ time_t buzz_in() {
   // blocking IO call (with timeout) to hold back client until
   // response or time-out
   if(timed_getchar(time_out)) {
-    //getchar(); //consume any commandline input
     //get system time of buzz in
     buzz_time = time(NULL);
   } else {
     //client didn't buzz in, set buzz_time to specific value
     buzz_time = -1;
   }
-  getchar();
+ 
   return buzz_time;
 }
 
 
 
 /**
- * Read all the data about the current state of the game from the server.
+ * Read all the data about the current state of the game from the server. The
+ * struct can be rather large, so it is read in multiple packets from the 
+ * server.
  *
  * \param server - communication info for the game server
  * \param game - the struct to write the read game into
@@ -294,10 +295,24 @@ time_t buzz_in() {
  */
 game_t* get_game(input_t* server, game_t* game) {
   // read game_t from server and save into parameter game
-  if (read(server->socket_fd, game, sizeof(game_t)) != sizeof(game_t)) {
-    perror("Reading in game_t didn't work");
-    exit(2);
-  }
+  int bytes_read = 0;
+  
+  // read in game struct packet by packet
+  do {
+    // do some nasty casting to start saving new data where last
+    // read left off
+    int temp = read(server->socket_fd, (game_t*)(((intptr_t)game)+bytes_read), sizeof(game_t)-bytes_read);
+    
+    // error code check
+    if(temp == -1) {
+      perror("Reading in game_t failed");
+      exit(2);
+    }
+
+    // increment the total number of bytes read, and check against size of game_t
+    bytes_read += temp;
+  } while (bytes_read != sizeof(game_t));
+    
   return game;
 }
 
@@ -355,7 +370,7 @@ void select_question(input_t* server, game_t* game) {
 
   // send coords to server (until success)
   while(write(server->socket_fd, coords, sizeof(char)*coord_size+1) == -1) {}
-
+  getchar();//consume any leftover commandline input from the coord selection stage
 }
 
 /**
@@ -651,8 +666,7 @@ int main(int argc, char** argv) {
 	
   return 0;
 }
+/* TODO:
+receipts for succesfully sent answer?
 
-/*
-TODO:
-receipts for succesfully sent answer
  */
