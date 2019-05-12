@@ -270,14 +270,14 @@ game_t create_game() {
 void add_answer_to_list(answer_t* ans) {
   pthread_mutex_lock(&answer_list_lock);
 
-  if (head == NULL) {
+  if (answers_head == NULL) {
     // adding first answer as head
     answers_head = ans;
     answers_head->next = NULL;
   } else {
     // add new node to front of the list
-    ans->next = head;
-    head = ans;
+    ans->next = answers_head;
+    answers_head = ans;
   }
   pthread_mutex_unlock(&answer_list_lock);
 }
