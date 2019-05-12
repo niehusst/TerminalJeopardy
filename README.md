@@ -14,7 +14,7 @@ This game uses the C socket API to created a distributed TCP network across whic
 
 ## Acknowledgements
 * The code in the `socket.h` file was written by [Charlie Curtsinger](https://github.com/ccurtsinger).
-* The source of the JSON data containing all questions and answers used in this game is from ...<TODO>... reddit??
+* The source of the JSON data containing all questions and answers used in this game is from [reddit](https://www.reddit.com/r/datasets/comments/1uyd0t/200000_jeopardy_questions_in_a_json_file/).
 
 ### Licences required for dependencies
 #### cJSON
