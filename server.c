@@ -18,17 +18,19 @@ category_t* category_hashmap = NULL;
 // Creating game variables
 game_t game;
 pthread_mutex_t add_player_lock;
-// variables for syncing threads that communicate with clients
-pthread_mutex_t sync_lock_a, sync_lock_g;
-int sync_threads_a = 0, sync_threads_g = 0;; 
-int last_thread_a = 0, last_thread_g = 0;
-int remaining_questions = 25; // global count to track game progress
+int remaining_questions = 25;
 
 // Checking of submitted answers
 pthread_mutex_t answer_list_lock;
 answer_t* answers_head = NULL;
 
-
+// Syncing threads
+pthread_mutex_t sync_lock_a;
+pthread_mutex_t sync_lock_g;
+int sync_threads_a = 0;
+int sync_threads_g = 0;
+int last_thread_a = 0;
+int last_thread_g = 0;
 
 /**
  * Takes in a JSON file and outputs a new file of the first num_lines_wanted
@@ -134,8 +136,11 @@ int add_square_from_json(char* json_str) {
     strncpy(category, cJSON_GetStringValue(json_category), MAX_ANSWER_LENGTH-1);
     category[MAX_ANSWER_LENGTH-1] = '\0';
 
-    // Try to find the category of the question in the Hashmap. If it's there, add the square to
-    // the existing category. If the category isn't not there, create a new hashmap entry and add it
+    /* 
+       Try to find the category of the question in the hashmap. If it's there,
+       add the square to the existing category. If the category isn't not there,
+       create a new hashmap entry and add it
+    */
     category_t* query;
     HASH_FIND_STR(category_hashmap, category, query);
     if (query == NULL) {
@@ -150,8 +155,7 @@ int add_square_from_json(char* json_str) {
       query->num_questions++;
     }
     
-    // TODO: HANDLE FREEING LATER
-    //cJSON_Delete(json);
+    cJSON_Delete(json);
     return 1;
 }
 
@@ -210,7 +214,7 @@ int add_player(char* name, input_t* args) {
 }
 
 /**
- * Simply iterates through the hashmap 'index' times to get the entry at 'index'
+ * Iterates through the hashmap 'index' times to get the entry at 'index'
  *
  * \param index - the index we want to get
  * \return c - the entry at position index in the category_hashmap
@@ -226,8 +230,8 @@ category_t* get_category_at_index(int index) {
 /**
  * Creates an empty game, including filling out the Jeopardy board 
  *
- * \return game - a filled out game_t struct containing categories parsed randomly to
- *                make the game different *every time 
+ * \return game - a filled out game_t struct containing categories parsed 
+ *                randomly to make the game different *every time 
  */
 game_t create_game() {
   game_t game;
@@ -419,7 +423,6 @@ void* handle_client(void* input) {
   while (game.num_players < MAX_NUM_PLAYERS) {
     usleep(500);
   }
-
   
   char* coords = (char*) malloc(sizeof(char)*2);
   // communication loop with designated client
@@ -491,13 +494,10 @@ void* handle_client(void* input) {
     int correct_answer_id = -1;
     if (game.id_of_player_turn == args->id) {
 
-      // set game as over if there are no more valid questions
       if(remaining_questions == 0) game.is_over = 1;
       
       // check the answers' correctness in order
       correct_answer_id = get_quickest_answer(correct_ans);
-
-      // update score and player turn if client answered correctly
       if (correct_answer_id != -1) {
         game.players[correct_answer_id].score += question_value;
         game.id_of_player_turn = correct_answer_id;
@@ -512,8 +512,6 @@ void* handle_client(void* input) {
         ans->did_answer = 1;
       }
 
-      // send the answer struct back with results of answering round
-      // to all clients
       for(int player = 0; player < MAX_NUM_PLAYERS; player++) {
         if (write(game.players[player].socket_fd, ans, sizeof(answer_t)) != sizeof(answer_t)) {
           perror("Sending correct answer doesn't work!");
@@ -521,6 +519,9 @@ void* handle_client(void* input) {
       }
     }
   }
+  
+  free(input);
+  free(coords);
   
   return NULL;
 }
@@ -582,6 +583,20 @@ void run_game(int server_socket_fd, int num_connections_allowed) {
 }
 
 /**
+ * Free all the heap memory in the hashmap allocated at the beginning
+ * of the game to store the parsed JSON data.
+ */
+void clean_up_game() {
+  // Free category hashmap
+  category_t* c = category_hashmap;
+  while (c != NULL) {
+    category_t* temp = c;
+    c = c->hh.next;
+    free(temp);
+  }
+}
+
+/**
  * Sets up the server and starts running the game
  */
 int main() {
@@ -615,8 +630,10 @@ int main() {
   // Run the game
   run_game(server_socket_fd, num_connections_allowed);
 
+  // Clean everything up
   printf("Game is over, server exiting\n");
   close(server_socket_fd);
+  clean_up_game();
 	
   return 0;
 }
