@@ -285,7 +285,9 @@ time_t buzz_in() {
 
 
 /**
- * Read all the data about the current state of the game from the server.
+ * Read all the data about the current state of the game from the server. The
+ * struct can be rather large, so it is read in multiple packets from the 
+ * server.
  *
  * \param server - communication info for the game server
  * \param game - the struct to write the read game into
@@ -293,10 +295,24 @@ time_t buzz_in() {
  */
 game_t* get_game(input_t* server, game_t* game) {
   // read game_t from server and save into parameter game
-  if (read(server->socket_fd, game, sizeof(game_t)) != sizeof(game_t)) {
-    perror("Reading in game_t didn't work");
-    exit(2);
-  }
+  int bytes_read = 0;
+  
+  // read in game struct packet by packet
+  do {
+    // do some nasty casting to start saving new data where last
+    // read left off
+    int temp = read(server->socket_fd, (game_t*)(((intptr_t)game)+bytes_read), sizeof(game_t)-bytes_read);
+    
+    // error code check
+    if(temp == -1) {
+      perror("Reading in game_t failed");
+      exit(2);
+    }
+
+    // increment the total number of bytes read, and check against size of game_t
+    bytes_read += temp;
+  } while (bytes_read != sizeof(game_t));
+    
   return game;
 }
 
@@ -651,10 +667,6 @@ int main(int argc, char** argv) {
   return 0;
 }
 /* TODO:
-client: when don't buzz in it calls getchar which makes it ambiguous if you can or cant buzz in. try chanign it back an ssee the behavior? 
-
-the person whose turn it isn't has to sumbit twice (there is a dangling getchar somewhere)
-
-receipts for succesfully sent answer
+receipts for succesfully sent answer?
 
  */
